@@ -66,7 +66,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   -- Calculate the number of distinct order dates for the customer
   UPDATE customers
-  SET visit_count = (
+  SET visit_counts = (
     SELECT COUNT(DISTINCT DATE(order_date))
     FROM orders
     WHERE customer_id = NEW.customer_id
@@ -88,14 +88,15 @@ EXECUTE FUNCTION update_visit_count();
 -- Feedback constraints
 ALTER TABLE feedback
 ADD CONSTRAINT chk_food_review_range
-CHECK (food_review >= 1 AND food_review <= 4),
+CHECK (food_review >= 0 AND food_review <= 4),
 ADD CONSTRAINT chk_service_range
-CHECK (service >= 1 AND service <= 4),
+CHECK (service >= 0 AND service <= 4),
 ADD CONSTRAINT chk_cleanliness_range
-CHECK (cleanliness >= 1 AND cleanliness <= 4),
+CHECK (cleanliness >= 0 AND cleanliness <= 4),
 ADD CONSTRAINT chk_atmosphere_range
-CHECK (atmosphere >= 1 AND atmosphere <= 4),
+CHECK (atmosphere >= 0 AND atmosphere <= 4),
 ADD CONSTRAINT chk_value_range
-CHECK (value >= 1 AND value <= 4),
+CHECK (value >= 0 AND value <= 4),
 ADD CONSTRAINT chk_overall_experience_range
-CHECK (overall_experience >= 1 AND overall_experience <= 4);
+CHECK (overall_experience >= 0 AND overall_experience <= 4);
+
