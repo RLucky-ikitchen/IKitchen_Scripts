@@ -1,10 +1,11 @@
-import pandas as pd
 from supabase import create_client, Client
-import os
+from utils import standardize_phone_number
+from utils import convert_rating
 from dotenv import load_dotenv
 from datetime import datetime
-from utils import standardize_phone_number
+import pandas as pd
 import argparse
+import os
 
 # Load environment variables
 load_dotenv(".env")
@@ -13,21 +14,6 @@ load_dotenv(".env")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-def convert_rating(value):
-    """Convert rating strings to integers"""
-    rating_map = {
-        'poor': 1,
-        'fair': 2,
-        'good': 3,
-        'great': 4
-    }
-
-    if pd.isna(value):
-        return 0  # Default to 0 for missing values
-
-    cleaned_value = str(value).lower().strip()
-    return rating_map.get(cleaned_value, 1)
 
 def format_date(date, time):
     """Format date and time properly"""

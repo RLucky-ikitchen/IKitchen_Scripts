@@ -16,3 +16,20 @@ def standardize_phone_number(phone_number):
             phone_number = "880" + phone_number
 
     return f"+{phone_number}"  # Add the '+' prefix
+
+def convert_rating(value):
+    """
+    Convert rating strings to integers.
+    """
+    rating_map = {
+        'poor': 1,
+        'fair': 2,
+        'good': 3,
+        'great': 4
+    }
+
+    if pd.isna(value):
+        return 0  # Default to 0 for missing values
+
+    cleaned_value = str(value).lower().strip()
+    return rating_map.get(cleaned_value, 1)

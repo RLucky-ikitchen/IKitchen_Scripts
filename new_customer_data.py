@@ -1,9 +1,9 @@
-import argparse
-import pandas as pd
-import re
 from supabase import create_client, Client
 from utils import standardize_phone_number
+from utils import convert_rating
 from dotenv import load_dotenv
+import pandas as pd
+import argparse
 import os
 
 # Load environment variables
@@ -20,22 +20,6 @@ def is_valid_email(email):
     """
     return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
 
-def convert_rating(value):
-    """
-    Convert rating strings to integers.
-    """
-    rating_map = {
-        'poor': 1,
-        'fair': 2,
-        'good': 3,
-        'great': 4
-    }
-
-    if pd.isna(value):
-        return 1  # Default to 1 for missing values
-
-    cleaned_value = str(value).lower().strip()
-    return rating_map.get(cleaned_value, 1)
 
 def import_feedback_data(dataframe):
     """
@@ -82,16 +66,32 @@ def import_feedback_data(dataframe):
                 "cleanliness": convert_rating(row.get('Cleanliness', None)),
                 "atmosphere": convert_rating(row.get('Atmosphere', None)),
                 "value": convert_rating(row.get('Value', None)),
-                "feedback_text": row.get('Feedback', None),
+                "where_did_they_hear_about_us": row.get('Where did they hear from us?', None),
                 "overall_experience": convert_rating(row.get('Overall Experience', None)),
                 "feedback_date": row.get('Feedback Date', None),
             }
 
             # Remove invalid fields from feedback data
-            feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v) and v != ""}
+            feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v)}
+
+            # Skip empty feedback (all numeric fields are 0 and feedback_text is empty or None)
+            feedback_fields = [
+                feedback_data.get("food_review", 0),
+                feedback_data.get("service", 0),
+                feedback_data.get("cleanliness", 0),
+                feedback_data.get("atmosphere", 0),
+                feedback_data.get("value", 0),
+                feedback_data.get("overall_experience", 0),
+            ]
+            feedback_text = feedback_data.get("feedback_text", "").strip()
+            if all(field == 0 for field in feedback_fields) and not feedback_text:
+                print(f"Skipping empty feedback for customer {customer_id}")
+                continue
 
             # Insert feedback
             supabase.table("feedback").insert(feedback_data).execute()
+
+
 
 def update_customer_details(dataframe):
     """

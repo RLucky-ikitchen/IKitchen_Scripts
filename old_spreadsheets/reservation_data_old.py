@@ -1,9 +1,9 @@
-import argparse
-import pandas as pd
 from supabase import create_client, Client
-import os
-from dotenv import load_dotenv
 from utils import standardize_phone_number
+from dotenv import load_dotenv
+import pandas as pd
+import argparse
+import os
 
 # Load environment variables
 load_dotenv(".env")

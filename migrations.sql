@@ -104,7 +104,7 @@ CHECK (overall_experience >= 0 AND overall_experience <= 4);
 -- Backfill for is_returning_customer
 UPDATE customers
 SET is_returning_customer = (
-  SELECT COUNT(*) > 2
+  SELECT COUNT(*) >= 2
   FROM orders
   WHERE orders.customer_id = customers.customer_id
 );
