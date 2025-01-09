@@ -2,6 +2,7 @@ from supabase import create_client, Client
 from utils import standardize_phone_number
 from utils import convert_rating
 from dotenv import load_dotenv
+from utils import is_valid_email
 import pandas as pd
 import argparse
 import os
@@ -13,13 +14,6 @@ load_dotenv(".env")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-def is_valid_email(email):
-    """
-    Check if an email is valid (simple validation to exclude placeholders).
-    """
-    return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
-
 
 def import_feedback_data(dataframe):
     """

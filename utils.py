@@ -33,3 +33,9 @@ def convert_rating(value):
 
     cleaned_value = str(value).lower().strip()
     return rating_map.get(cleaned_value, 1)
+
+def is_valid_email(email):
+    """
+    Check if an email is valid (simple validation to exclude placeholders).
+    """
+    return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
