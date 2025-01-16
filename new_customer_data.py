@@ -17,7 +17,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def import_feedback_data(dataframe):
     """
-    Import feedback data into Supabase.
+    Import feedback data into Supabase, replacing old feedback if it exists.
     """
     for _, row in dataframe.iterrows():
         phone_number = standardize_phone_number(row['Contact Number'])
@@ -68,24 +68,17 @@ def import_feedback_data(dataframe):
             # Remove invalid fields from feedback data
             feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v)}
 
-            # Skip empty feedback (all numeric fields are 0 and feedback_text is empty or None)
-            feedback_fields = [
-                feedback_data.get("food_review", 0),
-                feedback_data.get("service", 0),
-                feedback_data.get("cleanliness", 0),
-                feedback_data.get("atmosphere", 0),
-                feedback_data.get("value", 0),
-                feedback_data.get("overall_experience", 0),
-            ]
-            feedback_text = feedback_data.get("feedback_text", "").strip()
-            if all(field == 0 for field in feedback_fields) and not feedback_text:
-                print(f"Skipping empty feedback for customer {customer_id}")
-                continue
-
-            # Insert feedback
-            supabase.table("feedback").insert(feedback_data).execute()
-
-
+            # Check if feedback already exists for this customer
+            existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
+            if existing_feedback.data:
+                # Update existing feedback
+                feedback_id = existing_feedback.data[0]['feedback_id']
+                supabase.table("feedback").update(feedback_data).eq("feedback_id", feedback_id).execute()
+                print(f"Updated feedback for customer {customer_id}")
+            else:
+                # Insert new feedback
+                supabase.table("feedback").insert(feedback_data).execute()
+                print(f"Inserted new feedback for customer {customer_id}")
 
 def update_customer_details(dataframe):
     """

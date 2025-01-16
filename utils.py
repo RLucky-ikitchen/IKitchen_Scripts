@@ -14,6 +14,11 @@ def standardize_phone_number(phone_number):
             phone_number = phone_number
         else:
             phone_number = "880" + phone_number
+            
+    # Remove the country code and check the length
+    local_number = phone_number[3:]  # Exclude the '880' country code
+    if len(local_number) < 8 or len(local_number) > 11:
+        return None  # Remove the number if it doesn't meet the length requirement
 
     return f"+{phone_number}"  # Add the '+' prefix
 

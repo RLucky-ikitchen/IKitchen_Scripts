@@ -64,7 +64,7 @@ def get_or_create_customer(row):
         return None
 
 def insert_feedback(row):
-    """Insert feedback data for a customer"""
+    """Insert feedback data for a customer, replacing old feedback if it exists"""
     try:
         # Get or create customer
         customer_id = get_or_create_customer(row)
@@ -84,9 +84,18 @@ def insert_feedback(row):
             "feedback_date": format_date(row['Date'], row.get('Time'))
         }
 
-        # Insert feedback
-        feedback_response = supabase.table("feedback").insert(feedback_data).execute()
-        print(f"Successfully inserted feedback for customer {customer_id}")
+        # Check if feedback already exists for this customer
+        existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
+        if existing_feedback.data:
+            # Update existing feedback
+            feedback_id = existing_feedback.data[0]["feedback_id"]
+            supabase.table("feedback").update(feedback_data).eq("feedback_id", feedback_id).execute()
+            print(f"Updated feedback for customer {customer_id}")
+        else:
+            # Insert new feedback
+            supabase.table("feedback").insert(feedback_data).execute()
+            print(f"Inserted new feedback for customer {customer_id}")
+
         return True
 
     except Exception as e:
