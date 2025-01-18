@@ -1,6 +1,5 @@
 from supabase import create_client, Client
-from utils import standardize_phone_number
-from utils import convert_rating
+from utils import standardize_phone_number, convert_rating
 from dotenv import load_dotenv
 from datetime import datetime
 import pandas as pd
@@ -23,7 +22,8 @@ def format_date(date, time):
         else:
             dt = pd.to_datetime(f"{date} {time}")
         return dt.isoformat()
-    except:
+    except Exception as e:
+        print(f"Date formatting error: {e}")
         return datetime.now().isoformat()
 
 def get_or_create_customer(row):
@@ -83,6 +83,19 @@ def insert_feedback(row):
             "overall_experience": convert_rating(row.get("Overall Experience")),
             "feedback_date": format_date(row['Date'], row.get('Time'))
         }
+
+        # Skip empty feedback
+        numeric_ratings = [
+            feedback_data.get("food_review", 0),
+            feedback_data.get("service", 0),
+            feedback_data.get("cleanliness", 0),
+            feedback_data.get("atmosphere", 0),
+            feedback_data.get("value", 0),
+            feedback_data.get("overall_experience", 0),
+        ]
+        if all(rating == 0 for rating in numeric_ratings):
+            print(f"Skipping empty feedback for customer {customer_id}")
+            return False
 
         # Check if feedback already exists for this customer
         existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
