@@ -92,10 +92,18 @@ def import_feedback_data(dataframe):
                 continue
 
             # Check if feedback for the same date already exists for the customer
-            existing_feedback = supabase.table("feedback").select("*").eq("customer_id", customer_id).eq("feedback_date", feedback_data.get("feedback_date")).execute()
+            existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
             if existing_feedback.data:
-                print(f"Skipping duplicate feedback for customer {customer_id} on {feedback_data.get('feedback_date')}")
-                continue
+                # Update existing feedback
+                feedback_id = existing_feedback.data[0]["feedback_id"]
+                supabase.table("feedback").update(feedback_data).eq("feedback_id", feedback_id).execute()
+                print(f"Updated feedback for customer {customer_id}")
+            else:
+                # Insert new feedback
+                supabase.table("feedback").insert(feedback_data).execute()
+                print(f"Inserted new feedback for customer {customer_id}")
+
+            return True
 
             # Insert feedback
             supabase.table("feedback").insert(feedback_data).execute()
