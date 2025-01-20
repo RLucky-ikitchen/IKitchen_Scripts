@@ -100,3 +100,34 @@ CHECK (value >= 0 AND value <= 4),
 ADD CONSTRAINT chk_overall_experience_range
 CHECK (overall_experience >= 0 AND overall_experience <= 4);
 
+-----------------------------------------------------------------------------------------------------------------
+-- Backfill for is_returning_customer
+UPDATE customers
+SET is_returning_customer = (
+  SELECT COUNT(*) >= 2
+  FROM orders
+  WHERE orders.customer_id = customers.customer_id
+);
+
+-- Backfill for visit count
+UPDATE customers
+SET visit_counts = (
+  SELECT COUNT(DISTINCT DATE(order_date))
+  FROM orders
+  WHERE orders.customer_id = customers.customer_id
+);
+
+-- Backfill for top customer
+-- Update all customers to reflect top customer status based on existing data
+UPDATE customers
+SET is_top_customer = (
+  -- Condition 1: Total order amount > 20000
+  (SELECT SUM(total_amount) > 20000
+   FROM orders
+   WHERE orders.customer_id = customers.customer_id)
+  OR
+  -- Condition 2: At least 3 orders placed on different days
+  (SELECT COUNT(DISTINCT DATE(order_date)) >= 3
+   FROM orders
+   WHERE orders.customer_id = customers.customer_id)
+);

@@ -1,10 +1,10 @@
-import pandas as pd
 from supabase import create_client, Client
-import os
+from utils import standardize_phone_number, convert_rating
 from dotenv import load_dotenv
 from datetime import datetime
-from utils import standardize_phone_number
+import pandas as pd
 import argparse
+import os
 
 # Load environment variables
 load_dotenv(".env")
@@ -14,21 +14,6 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def convert_rating(value):
-    """Convert rating strings to integers"""
-    rating_map = {
-        'poor': 1,
-        'fair': 2,
-        'good': 3,
-        'great': 4
-    }
-
-    if pd.isna(value):
-        return 0  # Default to 0 for missing values
-
-    cleaned_value = str(value).lower().strip()
-    return rating_map.get(cleaned_value, 1)
-
 def format_date(date, time):
     """Format date and time properly"""
     try:
@@ -37,7 +22,8 @@ def format_date(date, time):
         else:
             dt = pd.to_datetime(f"{date} {time}")
         return dt.isoformat()
-    except:
+    except Exception as e:
+        print(f"Date formatting error: {e}")
         return datetime.now().isoformat()
 
 def get_or_create_customer(row):
@@ -78,7 +64,7 @@ def get_or_create_customer(row):
         return None
 
 def insert_feedback(row):
-    """Insert feedback data for a customer"""
+    """Insert feedback data for a customer, replacing old feedback if it exists"""
     try:
         # Get or create customer
         customer_id = get_or_create_customer(row)
@@ -98,9 +84,31 @@ def insert_feedback(row):
             "feedback_date": format_date(row['Date'], row.get('Time'))
         }
 
-        # Insert feedback
-        feedback_response = supabase.table("feedback").insert(feedback_data).execute()
-        print(f"Successfully inserted feedback for customer {customer_id}")
+        # Skip empty feedback
+        numeric_ratings = [
+            feedback_data.get("food_review", 0),
+            feedback_data.get("service", 0),
+            feedback_data.get("cleanliness", 0),
+            feedback_data.get("atmosphere", 0),
+            feedback_data.get("value", 0),
+            feedback_data.get("overall_experience", 0),
+        ]
+        if all(rating == 0 for rating in numeric_ratings):
+            print(f"Skipping empty feedback for customer {customer_id}")
+            return False
+
+        # Check if feedback already exists for this customer
+        existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
+        if existing_feedback.data:
+            # Update existing feedback
+            feedback_id = existing_feedback.data[0]["feedback_id"]
+            supabase.table("feedback").update(feedback_data).eq("feedback_id", feedback_id).execute()
+            print(f"Updated feedback for customer {customer_id}")
+        else:
+            # Insert new feedback
+            supabase.table("feedback").insert(feedback_data).execute()
+            print(f"Inserted new feedback for customer {customer_id}")
+
         return True
 
     except Exception as e:
