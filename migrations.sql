@@ -131,3 +131,8 @@ SET is_top_customer = (
    FROM orders
    WHERE orders.customer_id = customers.customer_id)
 );
+
+-----------------------------------------------------------------------------------------------------------------
+-- Add unique constraint
+ALTER TABLE feedback
+ADD CONSTRAINT unique_customer_id UNIQUE (customer_id);
