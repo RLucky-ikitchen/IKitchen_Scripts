@@ -1,5 +1,5 @@
 from supabase import create_client, Client
-from utils import standardize_phone_number
+from src.utils import standardize_phone_number
 from dotenv import load_dotenv
 import pandas as pd
 import argparse
