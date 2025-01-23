@@ -1,5 +1,31 @@
 import pandas as pd
 import logging
+
+import pandas as pd
+
+def get_spreadsheet_data(file_path: str):
+    # Function to read the file and dynamically skip rows
+    def dynamic_skip(file_reader, file_path):
+        skip = 0
+        while True:
+            # Read the file with the current number of skipped rows
+            df = file_reader(file_path, skiprows=skip)
+            
+            # Check if the DataFrame has more than one column
+            if len(df.columns) > 1:
+                return df  # Return the valid DataFrame
+            
+            # Increment the number of rows to skip and try again
+            skip += 1
+
+    if file_path.endswith(".csv"):
+        # Handle CSV files with dynamic skipping
+        return dynamic_skip(pd.read_csv, file_path)
+    else:
+        # Handle Excel files with dynamic skipping
+        return dynamic_skip(pd.read_excel, file_path)
+
+
 # Function to standardize phone numbers
 def standardize_phone_number(phone_number):
     if pd.isna(phone_number):
@@ -18,7 +44,7 @@ def standardize_phone_number(phone_number):
             
     # Remove the country code and check the length
     local_number = phone_number[3:]  # Exclude the '880' country code
-    if len(local_number) < 8 or len(local_number) > 11:
+    if len(local_number) < 8 or len(local_number) > 15:
         logging.warning(f"Invalid phone number length for: {phone_number}")
         return None # Remove the number if it doesn't meet the length requirement
 

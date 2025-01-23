@@ -5,7 +5,7 @@ import argparse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime
-from src.utils import standardize_phone_number
+from src.utils import standardize_phone_number, get_spreadsheet_data
 
 # Load environment variables
 load_dotenv(".env")
@@ -25,7 +25,7 @@ def insert_customer(customer):
     customer["phone_number"] = standardize_phone_number(customer["phone_number"])
 
     # Check if the customer already exists
-    existing_customer = supabase.table("customers").select("*").eq("phone_number", customer["phone_number"]).execute()
+    existing_customer = supabase.table("customers_testing").select("*").eq("phone_number", customer["phone_number"]).execute()
     if not existing_customer.data:
         customer_id = str(uuid.uuid4())  # Generate a unique ID for the customer
         customer["customer_id"] = customer_id
@@ -37,17 +37,20 @@ def insert_customer(customer):
             elif isinstance(value, float) and (pd.isna(value) or value == float('inf') or value == float('-inf')):
                 customer[key] = None  # Replace infinite or NaN floats with None
 
-        supabase.table("customers").insert(customer).execute()
+        supabase.table("customers_testing").insert(customer).execute()
         return customer_id
     return existing_customer.data[0]["customer_id"]
 
 # Function to insert unique orders
 def insert_order(order):
-    supabase.table("orders").insert(order).execute()
+    supabase.table("orders_testing").insert(order).execute()
 
-def process_excel(file_path):
-    # Read the Excel file
-    data = pd.read_excel(file_path)
+
+
+def process_file(file_path, logger=None):
+    data = get_spreadsheet_data(file_path)
+
+    data = data.dropna(subset=["Receipt no"])
 
     column_map = {
         "Customer name": "Customer name",
@@ -72,7 +75,12 @@ def process_excel(file_path):
 
     # Convert numeric columns to proper types
     data["Item quantity"] = pd.to_numeric(data["Item quantity"], errors="coerce")
+    data["Item amount"] = data["Item amount"].str.replace(",", "")
     data["Item amount"] = pd.to_numeric(data["Item amount"], errors="coerce")
+
+    if data["Item amount"].isna().any():
+        logger("Some rows have invalid 'Item amount':")
+        logger(data[data["Item amount"].isna()])
 
     # Group items by receipt number (used only for grouping here)
     grouped = data.groupby("Receipt no").apply(lambda group: {
@@ -122,7 +130,8 @@ def process_excel(file_path):
         # Get and validate the order type
         order_type = row[column_map["Ordertype name"]]
         if order_type not in order_type_map:
-            print(f"Skipping order with invalid order type: {order_type}")
+            if logger:
+                logger(f"Skipping order with invalid order type: {order_type}")
             continue
 
         # Prepare order details
@@ -143,9 +152,12 @@ def process_excel(file_path):
         try:
             insert_order(order)
         except Exception as e:
-            print(f"Failed to insert order: {e}")
+            if logger:
+                logger(f"Failed to insert order: {e}")
 
-    print("Data successfully inserted into Supabase.")
+    if logger:
+        logger(f"Processing complete. {len(final_data)} receipts processed.")
+
 
 # Example usage
 if __name__ == "__main__":
@@ -154,4 +166,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Call the process_excel function with the provided file path
-    process_excel(args.file_path)
+    process_file(args.file_path)
