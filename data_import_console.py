@@ -25,15 +25,16 @@ with st.expander("Import Data"):
                 # Determine the file type
                 file_extension = os.path.splitext(uploaded_file.name)[1].lower()
 
-                # Save the uploaded file temporarily
-                temp_file_path = os.path.join("temp_uploaded_file" + file_extension)
+                # Extract the original file name (without extension)
+                original_file_name = os.path.splitext(uploaded_file.name)[0]
+
+                # Construct a temporary file path including the original file name
+                temp_file_path = os.path.join(f"temp_{original_file_name}{file_extension}")
                 with open(temp_file_path, "wb") as temp_file:
                     temp_file.write(uploaded_file.getbuffer())
 
                 log_buffer = StringIO()
 
-                # Call the process_excel function with logging
-                st.write("Processing the uploaded file...")
                 log_placeholder = st.empty()  # Placeholder for real-time logs
 
                 def log_function(message):
@@ -42,7 +43,8 @@ with st.expander("Import Data"):
                     log_placeholder.text(log_buffer.getvalue())
 
                 # Pass the log function to your processing function
-                process_file(temp_file_path, logger=log_function)
+                with st.spinner("Processing the uploaded file..."):
+                    process_file(temp_file_path, logger=log_function)
 
                 # Notify the user of success
                 st.success("File processed and data inserted into Supabase successfully!")
