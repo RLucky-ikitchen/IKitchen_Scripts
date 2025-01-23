@@ -5,7 +5,7 @@ import argparse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from datetime import datetime
-from utils import standardize_phone_number
+from src.utils import standardize_phone_number
 
 # Load environment variables
 load_dotenv(".env")

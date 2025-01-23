@@ -1,8 +1,8 @@
 from supabase import create_client, Client
-from utils import standardize_phone_number
-from utils import convert_rating
+from src.utils import standardize_phone_number
+from src.utils import convert_rating
 from dotenv import load_dotenv
-from utils import is_valid_email
+from src.utils import is_valid_email
 from datetime import datetime
 import pandas as pd
 import argparse
