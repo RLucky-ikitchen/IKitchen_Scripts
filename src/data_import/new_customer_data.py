@@ -1,20 +1,10 @@
-from supabase import create_client, Client
-from src.utils import standardize_phone_number
-from src.utils import convert_rating
-from dotenv import load_dotenv
-from src.utils import is_valid_email
 from datetime import datetime
 import pandas as pd
 import argparse
-import os
 
-# Load environment variables
-load_dotenv(".env")
+from src.data_import.db import supabase
+from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data
 
-# Supabase configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def import_feedback_data(dataframe):
     """
@@ -179,11 +169,11 @@ def update_customer_status(dataframe):
             }
             supabase.table("customers").insert(new_customer).execute()
 
-def process_customer_data(file_path, sheet_name):
+def process_customer_data(file_path, logger=None):
     """
     Process the spreadsheet and update the Supabase database.
     """
-    dataframe = pd.read_excel(file_path, sheet_name=sheet_name)
+    dataframe = get_spreadsheet_data(file_path)
     update_customer_details(dataframe)
     import_feedback_data(dataframe)
     update_customer_status(dataframe)

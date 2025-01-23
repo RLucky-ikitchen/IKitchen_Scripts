@@ -1,23 +1,10 @@
-import os
 import pandas as pd
 import uuid
 import argparse
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from datetime import datetime
+
+from src.data_import.db import supabase
 from src.utils import standardize_phone_number, get_spreadsheet_data
 
-# Load environment variables
-load_dotenv(".env")
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("Supabase credentials are missing. Check your .env file.")
-
-# Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Function to insert unique customers
 def insert_customer(customer):
@@ -25,7 +12,7 @@ def insert_customer(customer):
     customer["phone_number"] = standardize_phone_number(customer["phone_number"])
 
     # Check if the customer already exists
-    existing_customer = supabase.table("customers_testing").select("*").eq("phone_number", customer["phone_number"]).execute()
+    existing_customer = supabase.table("customers").select("*").eq("phone_number", customer["phone_number"]).execute()
     if not existing_customer.data:
         customer_id = str(uuid.uuid4())  # Generate a unique ID for the customer
         customer["customer_id"] = customer_id
@@ -37,17 +24,17 @@ def insert_customer(customer):
             elif isinstance(value, float) and (pd.isna(value) or value == float('inf') or value == float('-inf')):
                 customer[key] = None  # Replace infinite or NaN floats with None
 
-        supabase.table("customers_testing").insert(customer).execute()
+        supabase.table("customers").insert(customer).execute()
         return customer_id
     return existing_customer.data[0]["customer_id"]
 
 # Function to insert unique orders
 def insert_order(order):
-    supabase.table("orders_testing").insert(order).execute()
+    supabase.table("orders").insert(order).execute()
 
 
 
-def process_file(file_path, logger=None):
+def process_pos_data(file_path, logger=None):
     data = get_spreadsheet_data(file_path)
 
     data = data.dropna(subset=["Receipt no"])
@@ -166,4 +153,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Call the process_excel function with the provided file path
-    process_file(args.file_path)
+    process_pos_data(args.file_path)
