@@ -136,3 +136,53 @@ SET is_top_customer = (
 -- Add unique constraint
 ALTER TABLE feedback
 ADD CONSTRAINT unique_customer_id UNIQUE (customer_id);
+
+-----------------------------------------------------------------------------------------------------------------
+-- Add constraint for phone number validation
+-- Step 1: Replace invalid phone numbers with NULL
+UPDATE customers
+SET phone_number = NULL
+WHERE phone_number NOT SIMILAR TO '\+880[0-9]{8,11}';
+
+-- Step 2: Add a CHECK constraint
+ALTER TABLE customers
+ADD CONSTRAINT chk_phone_number_valid
+CHECK (phone_number IS NULL OR phone_number ~ '^\+880[0-9]{8,11}$');
+
+-- Step 3: Create a trigger function
+CREATE OR REPLACE FUNCTION validate_and_nullify_phone_number()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.phone_number !~ '^\+880[0-9]{8,11}$' THEN
+        NEW.phone_number = NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Step 4: Create the trigger
+CREATE TRIGGER phone_number_nullify_trigger
+BEFORE INSERT OR UPDATE ON customers
+FOR EACH ROW
+EXECUTE FUNCTION validate_and_nullify_phone_number();
+
+-----------------------------------------------------------------------------------------------------------------
+-- View duplicate entry
+
+WITH duplicates AS (
+    SELECT order_id, receipt_id,
+           ROW_NUMBER() OVER (PARTITION BY receipt_id ORDER BY order_date DESC) AS rn
+    FROM orders
+)
+SELECT * 
+FROM duplicates 
+WHERE rn > 1;
+
+-- Remove duplicate entry 
+WITH duplicates AS (
+    SELECT order_id, receipt_id,
+           ROW_NUMBER() OVER (PARTITION BY receipt_id ORDER BY order_date DESC) AS rn
+    FROM orders
+)
+DELETE FROM orders
+WHERE order_id IN (SELECT order_id FROM duplicates WHERE rn > 1);

@@ -21,8 +21,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Function to insert unique customers
 def insert_customer(customer):
+    # Skip if no phone number is provided
+    if not customer.get("phone_number"):
+        return None
+
     # Standardize phone number
     customer["phone_number"] = standardize_phone_number(customer["phone_number"])
+    if not customer["phone_number"]:
+        return None
 
     # Check if the customer already exists
     existing_customer = supabase.table("customers").select("*").eq("phone_number", customer["phone_number"]).execute()
@@ -41,9 +47,22 @@ def insert_customer(customer):
         return customer_id
     return existing_customer.data[0]["customer_id"]
 
+# Function to check if receipt number exists
+def check_receipt_exists(receipt_number):
+    if not receipt_number:
+        return False
+    result = supabase.table("orders").select("order_id").eq("receipt_id", receipt_number).execute()
+    return bool(result.data)
+
 # Function to insert unique orders
 def insert_order(order):
+    # Check if receipt number exists before inserting
+    if check_receipt_exists(order.get("receipt_id")):
+        print(f"Order with receipt number {order['receipt_id']} already exists, skipping...")
+        return False
+    
     supabase.table("orders").insert(order).execute()
+    return True
 
 def process_excel(file_path):
     # Read the Excel file
@@ -102,33 +121,43 @@ def process_excel(file_path):
         "Eat in": "Dine-In",       # Handle alternate naming
     }
 
+    orders_processed = 0
+    orders_skipped = 0
+    
     # Process customers and orders
     for _, row in final_data.iterrows():
-        # Extract customer details
-        customer = {
-            "name": row[column_map["Customer name"]],
-            "phone_number": row[column_map["Customer mobile"]],
-            "email": row[column_map["Customer email"]],
-            "address": row[column_map["Customer address"]],
-        }
-
-        # Insert the customer and retrieve their ID
-        customer_id = insert_customer(customer)
-
-        # Skip if customer insertion fails
-        if not customer_id:
+        # First check if receipt number already exists
+        receipt_number = row[column_map["Receipt no"]]
+        if check_receipt_exists(receipt_number):
+            orders_skipped += 1
             continue
+
+        customer_id = None
+        
+        # Only process customer if there's valid customer information
+        if pd.notna(row[column_map["Customer mobile"]]) or pd.notna(row[column_map["Customer name"]]):
+            # Extract customer details
+            customer = {
+                "name": row[column_map["Customer name"]],
+                "phone_number": row[column_map["Customer mobile"]],
+                "email": row[column_map["Customer email"]],
+                "address": row[column_map["Customer address"]],
+            }
+
+            # Insert the customer and retrieve their ID
+            customer_id = insert_customer(customer)
 
         # Get and validate the order type
         order_type = row[column_map["Ordertype name"]]
         if order_type not in order_type_map:
             print(f"Skipping order with invalid order type: {order_type}")
+            orders_skipped += 1
             continue
 
         # Prepare order details
         order = {
             "order_id": str(uuid.uuid4()),  # Generate a unique ID for the order
-            "customer_id": customer_id,
+            "customer_id": customer_id,  # This can now be None
             "order_date": row[column_map["Sale date"]].isoformat()
             if isinstance(row[column_map["Sale date"]], pd.Timestamp)
             else str(row[column_map["Sale date"]]),
@@ -136,16 +165,25 @@ def process_excel(file_path):
             "order_items_text": row["order_items_text"],
             "total_amount": sum(item["amount"] for item in row["order_items"]),
             "order_type": order_type_map[order_type],  # Map to a valid enum type
-            "receipt_id": row[column_map["Receipt no"]],  # ServQuick receipt ID
+            "receipt_id": receipt_number,  # ServQuick receipt ID
         }
 
         # Insert the order
         try:
-            insert_order(order)
+            if insert_order(order):
+                orders_processed += 1
+                print(f"Inserted order with receipt {order['receipt_id']}" + 
+                      (f" for customer {customer_id}" if customer_id else " without customer information"))
+            else:
+                orders_skipped += 1
         except Exception as e:
             print(f"Failed to insert order: {e}")
+            orders_skipped += 1
 
-    print("Data successfully inserted into Supabase.")
+    print(f"\nImport Summary:")
+    print(f"Orders processed: {orders_processed}")
+    print(f"Orders skipped (duplicates or errors): {orders_skipped}")
+    print("Data import completed.")
 
 # Example usage
 if __name__ == "__main__":

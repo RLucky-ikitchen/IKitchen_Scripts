@@ -16,11 +16,28 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+def check_existing_receipt(receipt_number):
+    """
+    Check if a receipt number already exists in the orders table.
+    Returns True if receipt exists, False otherwise.
+    """
+    if not receipt_number:
+        return False
+        
+    existing_order = supabase.table("orders").select("receipt_id").eq("receipt_id", receipt_number).execute()
+    return bool(existing_order.data)
+
 def import_feedback_data(dataframe):
     """
     Import feedback data into Supabase.
     """
     for _, row in dataframe.iterrows():
+        # Check if receipt number exists in the database
+        receipt_number = row.get('Receipt Number')
+        if receipt_number and check_existing_receipt(receipt_number):
+            print(f"Skipping feedback for receipt {receipt_number} - already exists in database")
+            continue
+
         phone_number = standardize_phone_number(row['Contact Number'])
         if not phone_number:
             continue
@@ -54,7 +71,7 @@ def import_feedback_data(dataframe):
 
         if customer_id:
             # Map and convert ratings using convert_rating function
-                        # Ensure feedback_date is valid
+            # Ensure feedback_date is valid
             feedback_date = row.get('Feedback Date', None)
             if pd.isna(feedback_date):
                 feedback_date = datetime.now().isoformat()  # Use current date/time as fallback
@@ -71,8 +88,8 @@ def import_feedback_data(dataframe):
                 "where_did_they_hear_about_us": row.get('Where did they hear from us?', None),
                 "overall_experience": convert_rating(row.get('Overall Experience', None)),
                 "feedback_date": feedback_date,  # Always has a valid value
+                "receipt_number": receipt_number  # Add receipt number to feedback data
             }
-
 
             # Remove invalid fields from feedback data
             feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v)}
@@ -107,6 +124,7 @@ def import_feedback_data(dataframe):
 
             # Insert feedback
             supabase.table("feedback").insert(feedback_data).execute()
+
 
 def update_customer_details(dataframe):
     """
