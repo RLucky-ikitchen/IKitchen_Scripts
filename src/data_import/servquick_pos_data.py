@@ -2,17 +2,17 @@ import pandas as pd
 import uuid
 import argparse
 
-from src.data_import.db import supabase
+from src.data_import.db import supabase, get_table
 from src.utils import standardize_phone_number, get_spreadsheet_data
 
 
 # Function to insert unique customers
-def insert_customer(customer):
+def insert_customer(customer, test_tables=False):
     # Standardize phone number
     customer["phone_number"] = standardize_phone_number(customer["phone_number"])
 
     # Check if the customer already exists
-    existing_customer = supabase.table("customers").select("*").eq("phone_number", customer["phone_number"]).execute()
+    existing_customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", customer["phone_number"]).execute()
     if not existing_customer.data:
         customer_id = str(uuid.uuid4())  # Generate a unique ID for the customer
         customer["customer_id"] = customer_id
@@ -24,17 +24,12 @@ def insert_customer(customer):
             elif isinstance(value, float) and (pd.isna(value) or value == float('inf') or value == float('-inf')):
                 customer[key] = None  # Replace infinite or NaN floats with None
 
-        supabase.table("customers").insert(customer).execute()
+        supabase.table(get_table("customers", test_tables)).insert(customer).execute()
         return customer_id
     return existing_customer.data[0]["customer_id"]
 
-# Function to insert unique orders
-def insert_order(order):
-    supabase.table("orders").insert(order).execute()
 
-
-
-def process_pos_data(file_path, logger=None):
+def process_pos_data(file_path, test_tables=False, logger=None):
     data = get_spreadsheet_data(file_path)
 
     data = data.dropna(subset=["Receipt no"])
@@ -108,7 +103,7 @@ def process_pos_data(file_path, logger=None):
         }
 
         # Insert the customer and retrieve their ID
-        customer_id = insert_customer(customer)
+        customer_id = insert_customer(customer, test_tables)
 
         # Skip if customer insertion fails
         if not customer_id:
@@ -137,7 +132,7 @@ def process_pos_data(file_path, logger=None):
 
         # Insert the order
         try:
-            insert_order(order)
+            supabase.table(get_table("orders", test_tables)).insert(order).execute()
         except Exception as e:
             if logger:
                 logger(f"Failed to insert order: {e}")
