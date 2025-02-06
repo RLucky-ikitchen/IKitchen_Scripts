@@ -34,5 +34,6 @@ def get_table(name: str, testing: bool):
 
 
 def reset_test_data():
-    for table_name in TEST_TABLES.values():
-        supabase.table(table_name).delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
+    supabase.table('feedback_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
+    supabase.table('orders_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
+    supabase.table('customers_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()

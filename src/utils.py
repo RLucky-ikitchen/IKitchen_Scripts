@@ -11,8 +11,8 @@ def get_spreadsheet_data(file_path: str):
             # Read the file with the current number of skipped rows
             df = file_reader(file_path, skiprows=skip)
             
-            # Check if the DataFrame has more than one column
-            if len(df.columns) > 1:
+            # Check if the DataFrame has the expected column names
+            if "Customer name" in df.columns or "Contact Number" in df.columns:
                 return df  # Return the valid DataFrame
             
             # Increment the number of rows to skip and try again

@@ -93,7 +93,10 @@ def process_pos_data(file_path, test_tables=False, logger=None):
     }
 
     # Process customers and orders
-    for _, row in final_data.iterrows():
+    for i, row in final_data.iterrows():
+        if logger and i % 50 == 0:
+            logger(f"Processed {i} receipts")
+            
         # Extract customer details
         customer = {
             "name": row[column_map["Customer name"]],
@@ -104,10 +107,6 @@ def process_pos_data(file_path, test_tables=False, logger=None):
 
         # Insert the customer and retrieve their ID
         customer_id = insert_customer(customer, test_tables)
-
-        # Skip if customer insertion fails
-        if not customer_id:
-            continue
 
         # Get and validate the order type
         order_type = row[column_map["Ordertype name"]]

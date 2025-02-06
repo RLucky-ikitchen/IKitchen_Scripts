@@ -42,22 +42,19 @@ with st.expander("Import Data"):
 
                 def log_function(message):
                     """Append message to the log buffer and update Streamlit UI."""
-                    log_buffer.write(message + "\\n")
+                    log_buffer.write(message + "\n")
                     log_placeholder.text(log_buffer.getvalue())
 
-                # Pass the log function to your processing function
+
                 with st.spinner("Processing the uploaded file..."):
                     process_pos_data(temp_file_path, test_pos_data, logger=log_function)
 
-                # Notify the user of success
                 st.success("File processed and data inserted into Supabase successfully!")
 
-                # Optionally, delete the temporary file
-                os.remove(temp_file_path)
 
             except Exception as e:
-                # Handle exceptions and display the error message
                 st.error(f"An error occurred while processing the file: {e}")
+            os.remove(temp_file_path)
         else:
             st.warning("Please upload a file before clicking the 'Process File' button.")
 
@@ -93,22 +90,19 @@ with st.expander("Import Data"):
 
                 def log_function(message):
                     """Append message to the log buffer and update Streamlit UI."""
-                    log_buffer.write(message + "\\n")
+                    log_buffer.write(message + "\n")
                     log_placeholder.text(log_buffer.getvalue())
 
-                # Pass the log function to your processing function
+                
                 with st.spinner("Processing the uploaded file..."):
                     process_customer_data(temp_file_path, test_customer_data, logger=log_function)
 
-                # Notify the user of success
                 st.success("File processed and data inserted into Supabase successfully!")
-
-                # Optionally, delete the temporary file
-                os.remove(temp_file_path)
 
             except Exception as e:
                 # Handle exceptions and display the error message
                 st.error(f"An error occurred while processing the file: {e}")
+            os.remove(temp_file_path)
         else:
             st.warning("Please upload a file before clicking the 'Process File' button.")
 

@@ -6,7 +6,7 @@ from src.data_import.db import supabase, get_table
 from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data
 
 
-def import_feedback_data(dataframe, test_tables=False):
+def import_feedback_data(dataframe, test_tables, logger=None):
     """
     Import feedback data into Supabase.
     """
@@ -44,7 +44,7 @@ def import_feedback_data(dataframe, test_tables=False):
 
         if customer_id:
             # Map and convert ratings using convert_rating function
-                        # Ensure feedback_date is valid
+
             feedback_date = row.get('Feedback Date', None)
             if pd.isna(feedback_date):
                 feedback_date = datetime.now().isoformat()  # Use current date/time as fallback
@@ -78,7 +78,8 @@ def import_feedback_data(dataframe, test_tables=False):
             ]
             feedback_text = feedback_data.get("feedback_text", "").strip()
             if all(field == 0 for field in feedback_fields) and not feedback_text:
-                print(f"Skipping empty feedback for customer {customer_id}")
+                if logger:
+                    logger(f"Skipping empty feedback for customer {customer_id}")
                 continue
 
             # Check if feedback for the same date already exists for the customer
@@ -87,20 +88,24 @@ def import_feedback_data(dataframe, test_tables=False):
                 # Update existing feedback
                 feedback_id = existing_feedback.data[0]["feedback_id"]
                 supabase.table(get_table("feedback", test_tables)).update(feedback_data).eq("feedback_id", feedback_id).execute()
-                print(f"Updated feedback for customer {customer_id}")
+                if logger:
+                    logger(f"Updated feedback for customer {customer_id}")
             else:
                 # Insert new feedback
                 supabase.table(get_table("feedback", test_tables)).insert(feedback_data).execute()
-                print(f"Inserted new feedback for customer {customer_id}")
+                if logger:
+                    logger(f"Inserted new feedback for customer {customer_id}")
 
             return True
 
 
-def update_customer_details(dataframe, test_tables=False):
+def update_customer_details(dataframe, test_tables, logger=None):
     """
     Update customer details in Supabase based on phone number.
     """
-    for _, row in dataframe.iterrows():
+    for i, row in dataframe.iterrows():
+        if logger and i % 20 == 0:
+            logger(f"Processed {i} customers")
         phone_number = standardize_phone_number(row['Contact Number'])
         if not phone_number:
             continue
@@ -119,12 +124,14 @@ def update_customer_details(dataframe, test_tables=False):
             if not pd.isna(row['Email']):
                 email = row['Email']
                 if not is_valid_email(email):
-                    print(f"Skipping email update for customer {customer_id} due to invalid email: {email}")
+                    if logger:
+                        logger(f"Skipping email update for customer {customer_id} due to invalid email: {email}")
                 else:
                     # Check if the email exists for another customer
                     email_check = supabase.table(get_table("customers", test_tables)).select("customer_id").eq("email", email).execute()
                     if email_check.data and email_check.data[0]['customer_id'] != customer_id:
-                        print(f"Skipping email update for customer {customer_id} due to duplicate email: {email}")
+                        if logger:
+                            logger(f"Skipping email update for customer {customer_id} due to duplicate email: {email}")
                     else:
                         updates['email'] = email
 
@@ -134,47 +141,51 @@ def update_customer_details(dataframe, test_tables=False):
             if updates:
                 supabase.table(get_table("customers", test_tables)).update(updates).eq("customer_id", customer_id).execute()
 
-def update_customer_status(dataframe, test_tables=False):
+
+def update_customer_vip_status(dataframe, test_tables, logger=None):
     """
     Update customer status in Supabase.
     """
     for _, row in dataframe.iterrows():
         phone_number = standardize_phone_number(row['Contact Number'])
-        status = row['VIP/Returning/New']
-
-        if not phone_number or status == 'New':
+        if not phone_number:
             continue
 
-        customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", phone_number).execute()
+        if 'VIP' in str(row['Returning/New']) or row['VIP Status'] == 'Yes':
 
-        updates = {}
-        if status == 'VIP':
-            updates['is_VIP'] = True
-        elif status == 'Returning':
-            updates['is_returning_customer'] = True
+            customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", phone_number).execute()
 
-        if customer.data:
-            customer_id = customer.data[0]['customer_id']
-            supabase.table(get_table("customers", test_tables)).update(updates).eq("customer_id", customer_id).execute()
-        else:
-            new_customer = {
-                "phone_number": phone_number,
-                "name": f"{row['First Name']} {row['Last Name']}",
-                "address": row['Address'],
-                "email": row['Email'] if is_valid_email(row['Email']) else None,
-                "company_name": row['Company Name'],
-                **updates
-            }
-            supabase.table(get_table("customers", test_tables)).insert(new_customer).execute()
+            if customer.data:
+                customer_id = customer.data[0]['customer_id']
+                supabase.table(get_table("customers", test_tables)).update({'is_VIP': True}).eq("customer_id", customer_id).execute()
+            else:
+                new_customer = {
+                    "phone_number": phone_number,
+                    "name": f"{row['First Name']} {row['Last Name']}",
+                    'is_VIP': True
+                }
+                if not pd.isna(row["Address"]):
+                    new_customer["address"] = row['Address']
+                if not pd.isna(row["Company Name"]):
+                    new_customer["company_name"] = row['Company Name']
+
+                supabase.table(get_table("customers", test_tables)).insert(new_customer).execute()
 
 def process_customer_data(file_path, test_tables=False, logger=None):
     """
     Process the spreadsheet and update the Supabase database.
     """
     dataframe = get_spreadsheet_data(file_path)
-    update_customer_details(dataframe, test_tables)
-    import_feedback_data(dataframe, test_tables)
-    update_customer_status(dataframe, test_tables)
+
+    if logger:
+        logger("Updating Customer Details")
+    # update_customer_details(dataframe, test_tables, logger)
+    # update_customer_vip_status(dataframe, test_tables, logger)
+
+    if logger:
+        logger("Importing Feedback")
+    import_feedback_data(dataframe, test_tables, logger)
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process customer data from an Excel file.")
