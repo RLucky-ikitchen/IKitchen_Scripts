@@ -15,11 +15,11 @@ order_type_mapping = {
 }
 
 
-def get_existing_receipt_ids(receipt_ids: List[str], test_tables=False) -> set:
+def get_existing_receipt_ids(receipt_ids: List[str], use_test_tables) -> set:
     existing_receipts = set()
     for i in range(0, len(receipt_ids), BATCH_SIZE):
         batch_receipts = receipt_ids[i:i + BATCH_SIZE]
-        response = supabase.table(get_table("orders", test_tables)) \
+        response = supabase.table(get_table("orders", use_test_tables)) \
             .select("receipt_id") \
             .in_("receipt_id", batch_receipts) \
             .execute()
@@ -27,7 +27,7 @@ def get_existing_receipt_ids(receipt_ids: List[str], test_tables=False) -> set:
     return existing_receipts
 
 
-def batch_insert_customers(customers: List[Customer], test_tables=False) -> Dict[str, str]:
+def batch_insert_customers(customers: List[Customer], use_test_tables) -> Dict[str, str]:
     customer_id_map = {}
     existing_customers = {}
 
@@ -35,7 +35,7 @@ def batch_insert_customers(customers: List[Customer], test_tables=False) -> Dict
     phone_numbers = [customer.phone_number for customer in customers]
     for i in range(0, len(phone_numbers), BATCH_SIZE):
         batch_numbers = phone_numbers[i:i + BATCH_SIZE]
-        response = supabase.table(get_table("customers", test_tables)) \
+        response = supabase.table(get_table("customers", use_test_tables)) \
             .select("customer_id, phone_number") \
             .in_("phone_number", batch_numbers) \
             .execute()
@@ -55,20 +55,23 @@ def batch_insert_customers(customers: List[Customer], test_tables=False) -> Dict
 
     for i in range(0, len(new_customers), BATCH_SIZE):
         batch = [customer.model_dump() for customer in new_customers[i:i + BATCH_SIZE]]
-        supabase.table(get_table("customers", test_tables)).insert(batch).execute()
+        supabase.table(get_table("customers", use_test_tables)).insert(batch).execute()
 
     # Combine existing and new customer IDs
     customer_id_map.update(existing_customers)
     return customer_id_map
 
 
-def batch_insert_orders(orders: List[Order], test_tables=False):
+def batch_insert_orders(orders: List[Order], use_test_tables):
     for i in range(0, len(orders), BATCH_SIZE):
         batch = [order.model_dump() for order in orders[i:i + BATCH_SIZE]]
-        supabase.table(get_table("orders", test_tables)).insert(batch).execute()
+        supabase.table(get_table("orders", use_test_tables)).insert(batch).execute()
 
 
-def process_pos_data(file_path, test_tables=False, logger=None):
+def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
+
+    use_test_tables = not disable_test_pos_data
+
     data = get_spreadsheet_data(file_path)
     data = data.dropna(subset=["Receipt no"])
 
@@ -117,7 +120,7 @@ def process_pos_data(file_path, test_tables=False, logger=None):
         )
         customers.append(customer)
 
-    customer_id_map = batch_insert_customers(customers, test_tables)
+    customer_id_map = batch_insert_customers(customers, use_test_tables)
     if logger:
         logger(f"Processing {len(customers)} customers ...")
 
@@ -125,7 +128,7 @@ def process_pos_data(file_path, test_tables=False, logger=None):
 
     # First, fetch existing receipt IDs from the database
     receipt_ids = final_data["Receipt no"].unique().tolist()
-    existing_receipt_ids = get_existing_receipt_ids(receipt_ids, test_tables)
+    existing_receipt_ids = get_existing_receipt_ids(receipt_ids, use_test_tables)
 
     orders = []
     for _, row in final_data.iterrows():
@@ -151,7 +154,7 @@ def process_pos_data(file_path, test_tables=False, logger=None):
         )
         orders.append(order)
 
-    batch_insert_orders(orders, test_tables)
+    batch_insert_orders(orders, use_test_tables)
 
     if logger:
         logger(f"Processing complete. {len(final_data)} receipts processed.")
