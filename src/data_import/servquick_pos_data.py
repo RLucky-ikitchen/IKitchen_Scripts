@@ -14,6 +14,11 @@ order_type_mapping = {
     "Delivery": "Delivery"
 }
 
+def validate_spreadsheet_columns(data: pd.DataFrame, expected_columns: List[str]):
+    missing_columns = [col for col in expected_columns if col not in data.columns]
+    if missing_columns:
+        raise ValueError(f"The spreadsheet is missing the following required columns: {', '.join(missing_columns)}")
+
 
 def get_existing_receipt_ids(receipt_ids: List[str], use_test_tables) -> set:
     existing_receipts = set()
@@ -73,6 +78,15 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     use_test_tables = not disable_test_pos_data
 
     data = get_spreadsheet_data(file_path)
+
+    expected_columns = [
+        "Receipt no", "Item quantity", "Item amount", "Item name", 
+        "Customer mobile", "Customer email", "Customer address", 
+        "Customer name", "Sale date", "Ordertype name"
+    ]
+    
+    validate_spreadsheet_columns(data, expected_columns)
+
     data = data.dropna(subset=["Receipt no"])
 
     # Data Cleaning
