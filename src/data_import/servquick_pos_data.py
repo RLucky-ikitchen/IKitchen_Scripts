@@ -101,8 +101,6 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     }).reset_index(name="grouped_data")
 
     final_data = pd.merge(data.drop_duplicates("Receipt no"), grouped, on="Receipt no", how="left")
-    if logger:
-        logger(f"Processing {len(final_data)} receipts...")
     
     # Logging time frame of the receipts
     if not final_data["Sale date"].isna().all():

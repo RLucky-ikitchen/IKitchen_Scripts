@@ -18,10 +18,9 @@ def get_existing_feedback(customer_ids: List[str], test_tables: bool) -> Dict[st
 
 
 def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
-    customers_to_update = []
-    customers_to_insert = []
+    customers_to_update = {}
+    customers_to_insert = {}
 
-    processed_phone_numbers = set()
 
     # Collect all phone numbers for batch query
     phone_numbers_to_process = dataframe['Contact Number'].dropna().apply(standardize_phone_number).dropna().unique().tolist()
@@ -33,11 +32,6 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
         if pd.isna(phone_number) or not phone_number:
             continue  # Skip if no phone number
 
-        if phone_number in processed_phone_numbers:
-            if logger:
-                logger(f"Found row with duplicated phone number {phone_number}, skipping customer details update.")
-            continue  # Skip if phone number already processed
-        processed_phone_numbers.add(phone_number)
         try:
             customer_data = {
                 "phone_number": phone_number,
@@ -70,22 +64,39 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
                 update_data["is_VIP"] = True
 
             if update_data:
-                customers_to_update.append((customer.customer_id, update_data))
+                # Using customer_id as the key
+                if customer.customer_id in customers_to_update:
+                    customers_to_update[customer.customer_id].update(update_data)
+                else:
+                    customers_to_update[customer.customer_id] = update_data
         else:
-            customers_to_insert.append(customer.model_dump(exclude_unset=True, exclude_none=True))
+            # Check if the customer is already in customers_to_insert 
+            # - this happens if the same customer appears multiple times in the spreadsheet.
+            if phone_number in customers_to_insert:
+                existing_insert = customers_to_insert[phone_number]
+                # Update missing fields
+                for field in ['name', 'email', 'address', 'company_name']:
+                    value = getattr(customer, field)
+                    if value and (field not in existing_insert or not existing_insert[field]):
+                        existing_insert[field] = value
+
+                if customer.is_VIP:
+                    existing_insert["is_VIP"] = True
+            else:
+                customers_to_insert[phone_number] = customer.model_dump(exclude_unset=True, exclude_none=True)
     
     
     # Batch updates
     if logger:
         logger(f"Updating {len(customers_to_update)} customers..")
-    for customer_id, updates in customers_to_update:
+    for customer_id, updates in customers_to_update.items():
         supabase.table(get_table("customers", use_test_tables)).update(updates).eq("customer_id", customer_id).execute()
 
     # Batch inserts
     if logger:
         logger(f"Inserting {len(customers_to_insert)} customers..")
     if customers_to_insert:
-        supabase.table(get_table("customers", use_test_tables)).insert(customers_to_insert).execute()
+        supabase.table(get_table("customers", use_test_tables)).insert(list(customers_to_insert.values())).execute()
 
 
 def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
