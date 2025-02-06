@@ -186,7 +186,3 @@ WITH duplicates AS (
 )
 DELETE FROM orders
 WHERE order_id IN (SELECT order_id FROM duplicates WHERE rn > 1);
-
--- Add unique constraint
-ALTER TABLE orders
-ADD CONSTRAINT unique_receipt_id UNIQUE (receipt_id);
