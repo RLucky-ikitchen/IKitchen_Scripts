@@ -26,6 +26,9 @@ TEST_TABLES = {
     "feedback": "feedback_testing"
 }
 
+
+BATCH_SIZE = 1000
+
 def get_table(name: str, testing: bool):
     if testing:
         return TEST_TABLES.get(name)

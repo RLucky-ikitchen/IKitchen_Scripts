@@ -1,150 +1,157 @@
 import pandas as pd
 import uuid
-import argparse
 
-from src.data_import.db import supabase, get_table
+from typing import List, Dict
+from src.data_import.models import Customer, Order, OrderItem
+
+from src.data_import.db import supabase, get_table, BATCH_SIZE
 from src.utils import standardize_phone_number, get_spreadsheet_data
 
 
-# Function to insert unique customers
-def insert_customer(customer, test_tables=False):
-    # Standardize phone number
-    customer["phone_number"] = standardize_phone_number(customer["phone_number"])
+order_type_mapping = {
+    "Take away": "Take away",
+    "Eat in": "Dine-In",
+    "Delivery": "Delivery"
+}
 
-    # Check if the customer already exists
-    existing_customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", customer["phone_number"]).execute()
-    if not existing_customer.data:
-        customer_id = str(uuid.uuid4())  # Generate a unique ID for the customer
-        customer["customer_id"] = customer_id
 
-        # Ensure all values in the customer dictionary are valid JSON types
-        for key, value in customer.items():
-            if pd.isnull(value):  # Check for NaN values
-                customer[key] = None  # Replace NaN with None
-            elif isinstance(value, float) and (pd.isna(value) or value == float('inf') or value == float('-inf')):
-                customer[key] = None  # Replace infinite or NaN floats with None
+def get_existing_receipt_ids(receipt_ids: List[str], test_tables=False) -> set:
+    existing_receipts = set()
+    for i in range(0, len(receipt_ids), BATCH_SIZE):
+        batch_receipts = receipt_ids[i:i + BATCH_SIZE]
+        response = supabase.table(get_table("orders", test_tables)) \
+            .select("receipt_id") \
+            .in_("receipt_id", batch_receipts) \
+            .execute()
+        existing_receipts.update([item["receipt_id"] for item in response.data])
+    return existing_receipts
 
-        supabase.table(get_table("customers", test_tables)).insert(customer).execute()
-        return customer_id
-    return existing_customer.data[0]["customer_id"]
+
+def batch_insert_customers(customers: List[Customer], test_tables=False) -> Dict[str, str]:
+    customer_id_map = {}
+    existing_customers = {}
+
+    # Lookup existing customers
+    phone_numbers = [customer.phone_number for customer in customers]
+    for i in range(0, len(phone_numbers), BATCH_SIZE):
+        batch_numbers = phone_numbers[i:i + BATCH_SIZE]
+        response = supabase.table(get_table("customers", test_tables)) \
+            .select("customer_id, phone_number") \
+            .in_("phone_number", batch_numbers) \
+            .execute()
+
+        for customer in response.data:
+            existing_customers[customer["phone_number"]] = customer["customer_id"]
+
+    # Insert new customers
+    new_customers = [
+        customer for customer in customers 
+        if customer.phone_number not in existing_customers
+    ]
+
+    for customer in new_customers:
+        customer.customer_id = str(uuid.uuid4())
+        customer_id_map[customer.phone_number] = customer.customer_id
+
+    for i in range(0, len(new_customers), BATCH_SIZE):
+        batch = [customer.model_dump() for customer in new_customers[i:i + BATCH_SIZE]]
+        supabase.table(get_table("customers", test_tables)).insert(batch).execute()
+
+    # Combine existing and new customer IDs
+    customer_id_map.update(existing_customers)
+    return customer_id_map
+
+
+def batch_insert_orders(orders: List[Order], test_tables=False):
+    for i in range(0, len(orders), BATCH_SIZE):
+        batch = [order.model_dump() for order in orders[i:i + BATCH_SIZE]]
+        supabase.table(get_table("orders", test_tables)).insert(batch).execute()
 
 
 def process_pos_data(file_path, test_tables=False, logger=None):
     data = get_spreadsheet_data(file_path)
-
     data = data.dropna(subset=["Receipt no"])
 
-    column_map = {
-        "Customer name": "Customer name",
-        "Customer mobile": "Customer mobile",
-        "Customer email": "Customer email",
-        "Customer address": "Customer address",
-        "Sale date": "Sale date",
-        "Receipt no": "Receipt no",  # Used for grouping and stored as ServQuick Receipt ID
-        "Ordertype name": "Ordertype name",
-        "Item name": "Item name",
-        "Variant name": "Variant name",
-        "Selling price": "Selling price",
-        "Item quantity": "Item quantity",
-        "Item amount": "Item amount",
-    }
-
-    # Ensure the necessary columns exist
-    required_columns = column_map.keys()
-    for col in required_columns:
-        if col not in data.columns:
-            raise ValueError(f"Missing required column: {col}")
-
-    # Convert numeric columns to proper types
+    # Data Cleaning
     data["Item quantity"] = pd.to_numeric(data["Item quantity"], errors="coerce")
-    data["Item amount"] = data["Item amount"].str.replace(",", "")
+    data["Item amount"] = data["Item amount"].astype(str).str.replace(",", "")
     data["Item amount"] = pd.to_numeric(data["Item amount"], errors="coerce")
 
+    # Handle any invalid data
     if data["Item amount"].isna().any():
-        logger("Some rows have invalid 'Item amount':")
-        logger(data[data["Item amount"].isna()])
+        if logger:
+            logger("Invalid 'Item amount' detected:")
+            logger(data[data["Item amount"].isna()])
 
-    # Group items by receipt number (used only for grouping here)
+    # Group Items by Receipt Number
     grouped = data.groupby("Receipt no").apply(lambda group: {
-        "order_items": group.apply(lambda row: {
-            "item_name": row["Item name"],
-            "quantity": row["Item quantity"],
-            "amount": row["Item amount"],
-        }, axis=1).tolist(),
+        "order_items": group.apply(lambda row: OrderItem(
+            item_name=row["Item name"],
+            quantity=row["Item quantity"],
+            amount=row["Item amount"]
+        ), axis=1).tolist(),
         "order_items_text": "; ".join(
             f'{row["Item name"]} (x{row["Item quantity"]})' for _, row in group.iterrows()
-        ),
+        )
     }).reset_index(name="grouped_data")
 
-    # Extract grouped data into a DataFrame
-    grouped_data = pd.json_normalize(grouped["grouped_data"])
-    grouped = pd.concat([grouped, grouped_data], axis=1)
-
-    # Merge grouped data back with the original dataset
     final_data = pd.merge(data.drop_duplicates("Receipt no"), grouped, on="Receipt no", how="left")
+    if logger:
+        logger(f"Processing {len(final_data)} receipts...")
 
-    # Define a mapping for valid order types
-    order_type_map = {
-        "Dine-In": "Dine-In",
-        "Delivery": "Delivery",
-        "Takeaway": "Take away",  # Map "Takeaway" to "Take away"
-        "Take away": "Take away",  # Allow direct match
-        "Eat in": "Dine-In",       # Handle alternate naming
-    }
+    # Process all Customers
+    customers = []
+    for _, row in final_data.iterrows():
+        phone_number = standardize_phone_number(row.get("Customer mobile"))
+        if pd.isna(phone_number) or not phone_number:
+            continue  # Skip if no phone number
 
-    # Process customers and orders
-    for i, row in final_data.iterrows():
-        if logger and i % 50 == 0:
-            logger(f"Processed {i} receipts")
-            
-        # Extract customer details
-        customer = {
-            "name": row[column_map["Customer name"]],
-            "phone_number": row[column_map["Customer mobile"]],
-            "email": row[column_map["Customer email"]],
-            "address": row[column_map["Customer address"]],
-        }
+        email = row.get("Customer email")
+        address = row.get("Customer address")
 
-        # Insert the customer and retrieve their ID
-        customer_id = insert_customer(customer, test_tables)
+        customer = Customer(
+            name=row.get("Customer name"),
+            phone_number=phone_number,
+            email=email if not pd.isna(email) else None,
+            address=address if not pd.isna(address) else None
+        )
+        customers.append(customer)
 
-        # Get and validate the order type
-        order_type = row[column_map["Ordertype name"]]
-        if order_type not in order_type_map:
+    customer_id_map = batch_insert_customers(customers, test_tables)
+    if logger:
+        logger(f"Processing {len(customers)} customers ...")
+
+    # Process all Orders
+
+    # First, fetch existing receipt IDs from the database
+    receipt_ids = final_data["Receipt no"].unique().tolist()
+    existing_receipt_ids = get_existing_receipt_ids(receipt_ids, test_tables)
+
+    orders = []
+    for _, row in final_data.iterrows():
+        receipt_id = row['Receipt no']
+        if receipt_id in existing_receipt_ids:
             if logger:
-                logger(f"Skipping order with invalid order type: {order_type}")
-            continue
+                logger(f"Skipping order with existing receipt ID: {receipt_id}")
+            continue  # Skip if the receipt already exists
 
-        # Prepare order details
-        order = {
-            "order_id": str(uuid.uuid4()),  # Generate a unique ID for the order
-            "customer_id": customer_id,
-            "order_date": row[column_map["Sale date"]].isoformat()
-            if isinstance(row[column_map["Sale date"]], pd.Timestamp)
-            else str(row[column_map["Sale date"]]),
-            "order_items": row["order_items"],
-            "order_items_text": row["order_items_text"],
-            "total_amount": sum(item["amount"] for item in row["order_items"]),
-            "order_type": order_type_map[order_type],  # Map to a valid enum type
-            "receipt_id": row[column_map["Receipt no"]],  # ServQuick receipt ID
-        }
+        customer_id = customer_id_map.get(standardize_phone_number(row["Customer mobile"]))
+        if not customer_id:
+            continue # Skip if no customer ID
 
-        # Insert the order
-        try:
-            supabase.table(get_table("orders", test_tables)).insert(order).execute()
-        except Exception as e:
-            if logger:
-                logger(f"Failed to insert order: {e}")
+        order = Order(
+            order_id=str(uuid.uuid4()),
+            customer_id=customer_id,
+            order_date=row["Sale date"].isoformat() if isinstance(row["Sale date"], pd.Timestamp) else str(row["Sale date"]),
+            order_items=row['grouped_data']["order_items"],
+            order_items_text=row['grouped_data']["order_items_text"],
+            total_amount=sum(item.amount for item in row['grouped_data']["order_items"]),
+            order_type=order_type_mapping.get(row["Ordertype name"], "Take away"),  # Default to "Take away" if not found
+            receipt_id=row["Receipt no"]
+        )
+        orders.append(order)
+
+    batch_insert_orders(orders, test_tables)
 
     if logger:
         logger(f"Processing complete. {len(final_data)} receipts processed.")
-
-
-# Example usage
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process and insert data into Supabase.")
-    parser.add_argument("file_path", type=str, help="Path to the Excel file containing the data.")
-    args = parser.parse_args()
-
-    # Call the process_excel function with the provided file path
-    process_pos_data(args.file_path)
