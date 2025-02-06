@@ -1,8 +1,13 @@
 import pandas as pd
 import logging
 from typing import List
-
+import yaml
 import pandas as pd
+
+
+with open('spreadsheets_config.yaml', 'r') as file:
+    columns_config = yaml.safe_load(file)
+
 
 def get_spreadsheet_data(file_path: str):
     # Function to read the file and dynamically skip rows
@@ -75,7 +80,8 @@ def is_valid_email(email):
     return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
 
 
-def validate_spreadsheet_columns(data: pd.DataFrame, expected_columns: List[str]):
+def validate_spreadsheet_columns(data: pd.DataFrame, data_source: str):
+    expected_columns = columns_config.get(data_source, [])
     missing_columns = [col for col in expected_columns if col not in data.columns]
     if missing_columns:
         raise ValueError(f"The spreadsheet is missing the following required columns: {', '.join(missing_columns)}")

@@ -73,14 +73,7 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     use_test_tables = not disable_test_pos_data
 
     data = get_spreadsheet_data(file_path)
-
-    expected_columns = [
-        "Receipt no", "Item quantity", "Item amount", "Item name", 
-        "Customer mobile", "Customer email", "Customer address", 
-        "Customer name", "Sale date", "Ordertype name"
-    ]
-    
-    validate_spreadsheet_columns(data, expected_columns)
+    validate_spreadsheet_columns(data, "servquick_columns")
 
     data = data.dropna(subset=["Receipt no"])
 

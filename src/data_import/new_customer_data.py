@@ -154,29 +154,9 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     dataframe = get_spreadsheet_data(file_path)
     
     # We must first create or update all customers
-    customer_details_columns = [
-        "Contact Number",
-        "First Name",
-        "Last Name",
-        "Email",
-        "Address",
-        "Company Name",
-        "VIP Status"
-    ]
-    validate_spreadsheet_columns(dataframe, customer_details_columns)
+    validate_spreadsheet_columns(dataframe, "customer_details")
     process_customer_details(dataframe, use_test_tables, logger)
 
     # Then we process the feedback
-    feedback_columns = [
-        "Contact Number",
-        "Date",
-        "Food Review",
-        "Service",
-        "Cleanliness",
-        "Atmosphere",
-        "Value",
-        "Where did they hear from us?",
-        "Overall Experience",
-    ]
-    validate_spreadsheet_columns(dataframe, feedback_columns)
+    validate_spreadsheet_columns(dataframe, "feedback")
     process_feedback(dataframe, use_test_tables, logger)
