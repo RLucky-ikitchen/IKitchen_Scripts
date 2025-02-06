@@ -3,6 +3,7 @@ from utils import standardize_phone_number
 from utils import convert_rating
 from dotenv import load_dotenv
 from utils import is_valid_email
+from utils import check_receipt_exists
 from datetime import datetime
 import pandas as pd
 import argparse
@@ -16,42 +17,24 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def check_existing_receipt(receipt_number):
-    """
-    Check if a receipt number already exists in the orders table.
-    Returns True if receipt exists, False otherwise.
-    """
-    if not receipt_number:
-        return False
-        
-    existing_order = supabase.table("orders").select("receipt_id").eq("receipt_id", receipt_number).execute()
-    return bool(existing_order.data)
-
 def import_feedback_data(dataframe):
     """
     Import feedback data into Supabase.
     """
     for _, row in dataframe.iterrows():
-        # Check if receipt number exists in the database
-        receipt_number = row.get('Receipt Number')
-        if receipt_number and check_existing_receipt(receipt_number):
-            print(f"Skipping feedback for receipt {receipt_number} - already exists in database")
-            continue
-
         phone_number = standardize_phone_number(row['Contact Number'])
         if not phone_number:
             continue
 
-        # Fetch the customer ID
+        # Fetch or create customer
         customer = supabase.table("customers").select("customer_id").eq("phone_number", phone_number).execute()
         customer_id = None
 
         if customer.data:
             customer_id = customer.data[0]['customer_id']
         else:
-            # Prepare the new customer data
             email = row['Email']
-            if not is_valid_email(email):  # Exclude invalid email values
+            if not is_valid_email(email):
                 email = None
 
             new_customer = {
@@ -62,21 +45,16 @@ def import_feedback_data(dataframe):
                 "company_name": row['Company Name']
             }
 
-            # Remove invalid fields (e.g., None or NaN values)
             new_customer = {k: v for k, v in new_customer.items() if pd.notna(v) and v != ""}
-
-            # Insert the new customer
             created_customer = supabase.table("customers").insert(new_customer).execute()
             customer_id = created_customer.data[0]['customer_id'] if created_customer.data else None
 
         if customer_id:
-            # Map and convert ratings using convert_rating function
-            # Ensure feedback_date is valid
             feedback_date = row.get('Feedback Date', None)
             if pd.isna(feedback_date):
-                feedback_date = datetime.now().isoformat()  # Use current date/time as fallback
+                feedback_date = datetime.now().isoformat()
             else:
-                feedback_date = pd.to_datetime(feedback_date).isoformat()  # Ensure correct format
+                feedback_date = pd.to_datetime(feedback_date).isoformat()
 
             feedback_data = {
                 "customer_id": customer_id,
@@ -87,14 +65,11 @@ def import_feedback_data(dataframe):
                 "value": convert_rating(row.get('Value', None)),
                 "where_did_they_hear_about_us": row.get('Where did they hear from us?', None),
                 "overall_experience": convert_rating(row.get('Overall Experience', None)),
-                "feedback_date": feedback_date,  # Always has a valid value
-                "receipt_number": receipt_number  # Add receipt number to feedback data
+                "feedback_date": feedback_date
             }
 
-            # Remove invalid fields from feedback data
             feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v)}
 
-            # Skip empty feedback (all numeric fields are 0 and feedback_text is empty or None)
             feedback_fields = [
                 feedback_data.get("food_review", 0),
                 feedback_data.get("service", 0),
@@ -108,23 +83,14 @@ def import_feedback_data(dataframe):
                 print(f"Skipping empty feedback for customer {customer_id}")
                 continue
 
-            # Check if feedback for the same date already exists for the customer
             existing_feedback = supabase.table("feedback").select("feedback_id").eq("customer_id", customer_id).execute()
             if existing_feedback.data:
-                # Update existing feedback
                 feedback_id = existing_feedback.data[0]["feedback_id"]
                 supabase.table("feedback").update(feedback_data).eq("feedback_id", feedback_id).execute()
                 print(f"Updated feedback for customer {customer_id}")
             else:
-                # Insert new feedback
                 supabase.table("feedback").insert(feedback_data).execute()
                 print(f"Inserted new feedback for customer {customer_id}")
-
-            return True
-
-            # Insert feedback
-            supabase.table("feedback").insert(feedback_data).execute()
-
 
 def update_customer_details(dataframe):
     """
@@ -134,6 +100,15 @@ def update_customer_details(dataframe):
         phone_number = standardize_phone_number(row['Contact Number'])
         if not phone_number:
             continue
+
+        receipt_number = row.get('Receipt Number')
+        if receipt_number:
+            order = supabase.table("orders").select("*").eq("receipt_number", receipt_number).execute()
+            if order.data:
+                customer = supabase.table("customers").select("*").eq("phone_number", phone_number).execute()
+                if customer.data:
+                    customer_id = customer.data[0]['customer_id']
+                    supabase.table("orders").update({"customer_id": customer_id}).eq("receipt_number", receipt_number).execute()
 
         customer = supabase.table("customers").select("*").eq("phone_number", phone_number).execute()
         if customer.data:
@@ -151,7 +126,6 @@ def update_customer_details(dataframe):
                 if not is_valid_email(email):
                     print(f"Skipping email update for customer {customer_id} due to invalid email: {email}")
                 else:
-                    # Check if the email exists for another customer
                     email_check = supabase.table("customers").select("customer_id").eq("email", email).execute()
                     if email_check.data and email_check.data[0]['customer_id'] != customer_id:
                         print(f"Skipping email update for customer {customer_id} due to duplicate email: {email}")

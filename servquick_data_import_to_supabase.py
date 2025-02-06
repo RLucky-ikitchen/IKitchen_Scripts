@@ -4,8 +4,8 @@ import uuid
 import argparse
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from datetime import datetime
 from utils import standardize_phone_number
+from utils import check_receipt_exists
 
 # Load environment variables
 load_dotenv(".env")
@@ -46,13 +46,6 @@ def insert_customer(customer):
         supabase.table("customers").insert(customer).execute()
         return customer_id
     return existing_customer.data[0]["customer_id"]
-
-# Function to check if receipt number exists
-def check_receipt_exists(receipt_number):
-    if not receipt_number:
-        return False
-    result = supabase.table("orders").select("order_id").eq("receipt_id", receipt_number).execute()
-    return bool(result.data)
 
 # Function to insert unique orders
 def insert_order(order):

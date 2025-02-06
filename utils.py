@@ -1,5 +1,19 @@
 import pandas as pd
 import logging
+from dotenv import load_dotenv
+import os
+from supabase import create_client, Client
+# Load environment variables
+load_dotenv(".env")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Supabase credentials are missing. Check your .env file.")
+
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Function to standardize phone numbers
 def standardize_phone_number(phone_number):
     if pd.isna(phone_number):
@@ -46,3 +60,10 @@ def is_valid_email(email):
     Check if an email is valid (simple validation to exclude placeholders).
     """
     return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
+
+# Function to check if receipt number exists
+def check_receipt_exists(receipt_number):
+    if not receipt_number:
+        return False
+    result = supabase.table("orders").select("order_id").eq("receipt_id", receipt_number).execute()
+    return bool(result.data)
