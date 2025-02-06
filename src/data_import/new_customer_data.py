@@ -5,7 +5,8 @@ from src.models import Customer, Feedback
 from typing import List, Dict
 
 from src.data_import.db import supabase, get_table
-from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data
+from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns
+
 
 def get_existing_customers(phone_numbers: List[str], use_test_tables: bool) -> Dict[str, dict]:
     existing_customers_data = supabase.table(get_table("customers", use_test_tables)).select("*").in_("phone_number", phone_numbers).execute()
@@ -241,7 +242,30 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     dataframe = get_spreadsheet_data(file_path)
     
     # We must first create or update all customers
+    customer_details_columns = [
+        "Contact Number",
+        "First Name",
+        "Last Name",
+        "Email",
+        "Address",
+        "Company Name",
+        "VIP Status"
+    ]
+    validate_spreadsheet_columns(dataframe, customer_details_columns)
     process_customer_details(dataframe, use_test_tables, logger)
 
     # Then we process the feedback
+    feedback_columns = [
+        "Contact Number",
+        "Feedback Date",
+        "Food Review",
+        "Service",
+        "Cleanliness",
+        "Atmosphere",
+        "Value",
+        "Where did they hear from us?",
+        "Overall Experience",
+        "Feedback Text"
+    ]
+    validate_spreadsheet_columns(dataframe, feedback_columns)
     process_feedback(dataframe, use_test_tables, logger)

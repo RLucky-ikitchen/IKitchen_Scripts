@@ -5,7 +5,7 @@ from typing import List, Dict
 from src.models import Customer, Order, OrderItem
 
 from src.data_import.db import supabase, get_table, BATCH_SIZE
-from src.utils import standardize_phone_number, get_spreadsheet_data
+from src.utils import standardize_phone_number, get_spreadsheet_data, validate_spreadsheet_columns
 
 
 order_type_mapping = {
@@ -13,11 +13,6 @@ order_type_mapping = {
     "Eat in": "Dine-In",
     "Delivery": "Delivery"
 }
-
-def validate_spreadsheet_columns(data: pd.DataFrame, expected_columns: List[str]):
-    missing_columns = [col for col in expected_columns if col not in data.columns]
-    if missing_columns:
-        raise ValueError(f"The spreadsheet is missing the following required columns: {', '.join(missing_columns)}")
 
 
 def get_existing_receipt_ids(receipt_ids: List[str], use_test_tables) -> set:

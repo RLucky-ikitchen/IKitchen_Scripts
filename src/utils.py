@@ -1,5 +1,6 @@
 import pandas as pd
 import logging
+from typing import List
 
 import pandas as pd
 
@@ -72,3 +73,9 @@ def is_valid_email(email):
     Check if an email is valid (simple validation to exclude placeholders).
     """
     return email not in ["-", "--", "---", None, ""] and not pd.isna(email)
+
+
+def validate_spreadsheet_columns(data: pd.DataFrame, expected_columns: List[str]):
+    missing_columns = [col for col in expected_columns if col not in data.columns]
+    if missing_columns:
+        raise ValueError(f"The spreadsheet is missing the following required columns: {', '.join(missing_columns)}")
