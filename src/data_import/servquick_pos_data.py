@@ -115,6 +115,17 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     final_data = pd.merge(data.drop_duplicates("Receipt no"), grouped, on="Receipt no", how="left")
     if logger:
         logger(f"Processing {len(final_data)} receipts...")
+    
+    # Logging time frame of the receipts
+    if not final_data["Sale date"].isna().all():
+        final_data["Sale date"] = pd.to_datetime(final_data["Sale date"], errors='coerce')
+        
+        min_date = final_data["Sale date"].min()
+        max_date = final_data["Sale date"].max()
+        
+        if logger and pd.notna(min_date) and pd.notna(max_date):
+            logger(f"Processing receipts from {min_date.strftime('%d/%m/%Y')} to {max_date.strftime('%d/%m/%Y')}")
+
 
     # Process all Customers
     customers = []
