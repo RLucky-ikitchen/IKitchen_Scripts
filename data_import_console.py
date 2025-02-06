@@ -67,7 +67,7 @@ with st.expander("Import Data"):
 """)
     uploaded_file = st.file_uploader("Choose a file", type=["csv"])
 
-    test_customer_data = st.toggle("Test Mode", key='customer data test')
+    disable_test_customer_data = st.toggle("Disable Test Mode", key='customer data test')
 
     # Button to process the file
     if st.button("Process File", key='customer data process'):
@@ -95,7 +95,7 @@ with st.expander("Import Data"):
 
                 
                 with st.spinner("Processing the uploaded file..."):
-                    process_customer_data(temp_file_path, test_customer_data, logger=log_function)
+                    process_customer_data(temp_file_path, disable_test_customer_data, logger=log_function)
 
                 st.success("File processed and data inserted into Supabase successfully!")
 

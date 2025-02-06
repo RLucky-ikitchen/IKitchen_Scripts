@@ -2,6 +2,9 @@ from datetime import datetime
 import pandas as pd
 import argparse
 
+from src.models import Customer
+from typing import Dict
+
 from src.data_import.db import supabase, get_table
 from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data
 
@@ -99,99 +102,94 @@ def import_feedback_data(dataframe, test_tables, logger=None):
             return True
 
 
-def update_customer_details(dataframe, test_tables, logger=None):
-    """
-    Update customer details in Supabase based on phone number.
-    """
-    for i, row in dataframe.iterrows():
-        if logger and i % 20 == 0:
-            logger(f"Processed {i} customers")
-        phone_number = standardize_phone_number(row['Contact Number'])
-        if not phone_number:
-            continue
+def process_customers(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
+    customers_to_update = []
+    customers_to_insert = []
 
-        customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", phone_number).execute()
-        if customer.data:
-            customer_id = customer.data[0]['customer_id']
-            updates = {}
+    processed_phone_numbers = set()
 
-            if not pd.isna(row['First Name']) or not pd.isna(row['Last Name']):
-                updates['name'] = f"{row['First Name']} {row['Last Name']}"
+    # Collect all phone numbers for batch query
+    phone_numbers_to_process = dataframe['Contact Number'].dropna().apply(standardize_phone_number).dropna().unique().tolist()
 
-            if not pd.isna(row['Address']):
-                updates['address'] = row['Address']
-
-            if not pd.isna(row['Email']):
-                email = row['Email']
-                if not is_valid_email(email):
-                    if logger:
-                        logger(f"Skipping email update for customer {customer_id} due to invalid email: {email}")
-                else:
-                    # Check if the email exists for another customer
-                    email_check = supabase.table(get_table("customers", test_tables)).select("customer_id").eq("email", email).execute()
-                    if email_check.data and email_check.data[0]['customer_id'] != customer_id:
-                        if logger:
-                            logger(f"Skipping email update for customer {customer_id} due to duplicate email: {email}")
-                    else:
-                        updates['email'] = email
-
-            if not pd.isna(row['Company Name']):
-                updates['company_name'] = row['Company Name']
-
-            if updates:
-                supabase.table(get_table("customers", test_tables)).update(updates).eq("customer_id", customer_id).execute()
+    # Batch fetch existing customers
+    existing_customers_data = supabase.table(get_table("customers", use_test_tables)).select("*").in_("phone_number", phone_numbers_to_process).execute()
+    existing_customers_numbers = {cust['phone_number']: cust for cust in existing_customers_data.data}
 
 
-def update_customer_vip_status(dataframe, test_tables, logger=None):
-    """
-    Update customer status in Supabase.
-    """
+    # We only process customer details if they have a phone number
     for _, row in dataframe.iterrows():
-        phone_number = standardize_phone_number(row['Contact Number'])
-        if not phone_number:
+        phone_number = standardize_phone_number(row.get("Contact Number"))
+        if pd.isna(phone_number) or not phone_number:
+            continue  # Skip if no phone number
+
+        if phone_number in processed_phone_numbers:
+            if logger:
+                logger(f"Found row with duplicated phone number {phone_number}, skipping customer details update.")
+            continue  # Skip if phone number already processed
+        processed_phone_numbers.add(phone_number)
+        try:
+            customer_data = {
+                "phone_number": phone_number,
+                "name": f"{row['First Name']} {row['Last Name']}" if not pd.isna(row['First Name']) or not pd.isna(row['Last Name']) else None,
+                "email": row['Email'] if is_valid_email(row['Email']) else None,
+                "address": row['Address'] if not pd.isna(row['Address']) else None,
+                "company_name": row['Company Name'] if not pd.isna(row['Company Name']) else None,
+                "is_VIP": 'vip' in str(row['Returning/New']).lower() or row['VIP Status'] == 'Yes',
+            }
+            customer = Customer(**customer_data)
+
+        except ValueError as e:
+            if logger:
+                logger(f"Skipping customer due to validation error: {e}")
             continue
 
-        if 'VIP' in str(row['Returning/New']) or row['VIP Status'] == 'Yes':
+        existing_customer = existing_customers_numbers.get(customer.phone_number)
 
-            customer = supabase.table(get_table("customers", test_tables)).select("*").eq("phone_number", phone_number).execute()
+        if existing_customer:
+            customer.customer_id = existing_customer['customer_id']
+            update_data = {}
 
-            if customer.data:
-                customer_id = customer.data[0]['customer_id']
-                supabase.table(get_table("customers", test_tables)).update({'is_VIP': True}).eq("customer_id", customer_id).execute()
-            else:
-                new_customer = {
-                    "phone_number": phone_number,
-                    "name": f"{row['First Name']} {row['Last Name']}",
-                    'is_VIP': True
-                }
-                if not pd.isna(row["Address"]):
-                    new_customer["address"] = row['Address']
-                if not pd.isna(row["Company Name"]):
-                    new_customer["company_name"] = row['Company Name']
+            # Only update fields if there is a value in the spreadsheet
+            for field in ['name', 'email', 'address', 'company_name']:
+                value = getattr(customer, field)
+                if value is not None:
+                    update_data[field] = value
+            # Only update is_VIP if True
+            if customer.is_VIP:
+                update_data["is_VIP"] = True
 
-                supabase.table(get_table("customers", test_tables)).insert(new_customer).execute()
+            if update_data:
+                customers_to_update.append((customer.customer_id, update_data))
+        else:
+            customers_to_insert.append(customer.model_dump(exclude_unset=True, exclude_none=True))
+    
+    
+    # # Batch updates
+    if logger:
+        logger(f"Updating {len(customers_to_update)} customers..")
+    for customer_id, updates in customers_to_update:
+        supabase.table(get_table("customers", use_test_tables)).update(updates).eq("customer_id", customer_id).execute()
 
-def process_customer_data(file_path, test_tables=False, logger=None):
+    # Batch inserts
+    if logger:
+        logger(f"Inserting {len(customers_to_insert)} customers..")
+    if customers_to_insert:
+        supabase.table(get_table("customers", use_test_tables)).insert(customers_to_insert).execute()
+
+
+def process_customer_data(file_path, disable_test_customer_data=False, logger=None):
     """
     Process the spreadsheet and update the Supabase database.
     """
+    use_test_tables = not disable_test_customer_data
     dataframe = get_spreadsheet_data(file_path)
 
     if logger:
         logger("Updating Customer Details")
-    # update_customer_details(dataframe, test_tables, logger)
-    # update_customer_vip_status(dataframe, test_tables, logger)
-
-    if logger:
-        logger("Importing Feedback")
-    import_feedback_data(dataframe, test_tables, logger)
     
+    process_customers(dataframe, use_test_tables, logger)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process customer data from an Excel file.")
-    parser.add_argument("file_path", type=str, help="Path to the Excel file containing customer data.")
-    parser.add_argument("sheet_name", type=str, help="Name of the sheet in the Excel file to process.")
-    args = parser.parse_args()
 
-    # Call the main processing function with the provided file path and sheet name
-    process_customer_data(args.file_path, args.sheet_name)
+    # if logger:
+    #     logger("Importing Feedback")
+    # import_feedback_data(dataframe, use_test_tables, logger)

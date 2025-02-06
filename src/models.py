@@ -8,6 +8,8 @@ class Customer(BaseModel):
     phone_number: str
     email: Optional[str]
     address: Optional[str]
+    company_name: Optional[str] = None
+    is_VIP: bool = False
 
 
 

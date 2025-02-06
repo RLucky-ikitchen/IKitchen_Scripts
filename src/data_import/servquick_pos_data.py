@@ -2,7 +2,7 @@ import pandas as pd
 import uuid
 
 from typing import List, Dict
-from src.data_import.models import Customer, Order, OrderItem
+from src.models import Customer, Order, OrderItem
 
 from src.data_import.db import supabase, get_table, BATCH_SIZE
 from src.utils import standardize_phone_number, get_spreadsheet_data
