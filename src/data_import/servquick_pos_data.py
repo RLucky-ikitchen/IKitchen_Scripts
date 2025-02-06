@@ -155,7 +155,7 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
         receipt_id = row['Receipt no']
         if receipt_id in existing_receipt_ids:
             if logger:
-                logger(f"Skipping order with existing receipt ID: {receipt_id}")
+                logger(f"Skipping order with receipt ID: {receipt_id} - already in the database")
             continue  # Skip if the receipt already exists
 
         customer_id = customer_id_map.get(standardize_phone_number(row["Customer mobile"]))

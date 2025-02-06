@@ -1,6 +1,5 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
 
 class Customer(BaseModel):
     customer_id: Optional[str] = None
@@ -39,5 +38,4 @@ class Feedback(BaseModel):
     value: Optional[int]
     where_did_they_hear_about_us: Optional[str]
     overall_experience: Optional[int]
-    feedback_date: datetime
-    feedback_text: Optional[str] = ""
+    feedback_date: str

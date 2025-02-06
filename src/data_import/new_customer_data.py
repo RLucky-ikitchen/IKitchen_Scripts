@@ -16,98 +16,6 @@ def get_existing_feedback(customer_ids: List[str], test_tables: bool) -> Dict[st
     existing_feedback_data = supabase.table(get_table("feedback", test_tables)).select("feedback_id", "customer_id").in_("customer_id", customer_ids).execute()
     return {fb['customer_id']: fb for fb in existing_feedback_data.data}
 
-def old_import_feedback_data(dataframe, test_tables, logger=None):
-    """
-    Import feedback data into Supabase.
-    """
-    for _, row in dataframe.iterrows():
-        phone_number = standardize_phone_number(row['Contact Number'])
-        if not phone_number:
-            continue
-
-        # Fetch the customer ID
-        customer = supabase.table(get_table("customers", test_tables)).select("customer_id").eq("phone_number", phone_number).execute()
-        customer_id = None
-
-        if customer.data:
-            customer_id = customer.data[0]['customer_id']
-        else:
-            # Prepare the new customer data
-            email = row['Email']
-            if not is_valid_email(email):  # Exclude invalid email values
-                email = None
-
-            new_customer = {
-                "phone_number": phone_number,
-                "name": f"{row['First Name']} {row['Last Name']}".strip(),
-                "address": row['Address'],
-                "email": email,
-                "company_name": row['Company Name']
-            }
-
-            # Remove invalid fields (e.g., None or NaN values)
-            new_customer = {k: v for k, v in new_customer.items() if pd.notna(v) and v != ""}
-
-            # Insert the new customer
-            created_customer = supabase.table(get_table("customers", test_tables)).insert(new_customer).execute()
-            customer_id = created_customer.data[0]['customer_id'] if created_customer.data else None
-
-        if customer_id:
-            # Map and convert ratings using convert_rating function
-
-            feedback_date = row.get('Feedback Date', None)
-            if pd.isna(feedback_date):
-                feedback_date = datetime.now().isoformat()  # Use current date/time as fallback
-            else:
-                feedback_date = pd.to_datetime(feedback_date).isoformat()  # Ensure correct format
-
-            feedback_data = {
-                "customer_id": customer_id,
-                "food_review": convert_rating(row.get('Food Review', None)),
-                "service": convert_rating(row.get('Service', None)),
-                "cleanliness": convert_rating(row.get('Cleanliness', None)),
-                "atmosphere": convert_rating(row.get('Atmosphere', None)),
-                "value": convert_rating(row.get('Value', None)),
-                "where_did_they_hear_about_us": row.get('Where did they hear from us?', None),
-                "overall_experience": convert_rating(row.get('Overall Experience', None)),
-                "feedback_date": feedback_date,  # Always has a valid value
-            }
-
-
-            # Remove invalid fields from feedback data
-            feedback_data = {k: v for k, v in feedback_data.items() if pd.notna(v)}
-
-            # Skip empty feedback (all numeric fields are 0 and feedback_text is empty or None)
-            feedback_fields = [
-                feedback_data.get("food_review", 0),
-                feedback_data.get("service", 0),
-                feedback_data.get("cleanliness", 0),
-                feedback_data.get("atmosphere", 0),
-                feedback_data.get("value", 0),
-                feedback_data.get("overall_experience", 0),
-            ]
-            feedback_text = feedback_data.get("feedback_text", "").strip()
-            if all(field == 0 for field in feedback_fields) and not feedback_text:
-                if logger:
-                    logger(f"Skipping empty feedback for customer {customer_id}")
-                continue
-
-            # Check if feedback for the same date already exists for the customer
-            existing_feedback = supabase.table(get_table("feedback", test_tables)).select("feedback_id").eq("customer_id", customer_id).execute()
-            if existing_feedback.data:
-                # Update existing feedback
-                feedback_id = existing_feedback.data[0]["feedback_id"]
-                supabase.table(get_table("feedback", test_tables)).update(feedback_data).eq("feedback_id", feedback_id).execute()
-                if logger:
-                    logger(f"Updated feedback for customer {customer_id}")
-            else:
-                # Insert new feedback
-                supabase.table(get_table("feedback", test_tables)).insert(feedback_data).execute()
-                if logger:
-                    logger(f"Inserted new feedback for customer {customer_id}")
-
-            return True
-
 
 def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     customers_to_update = []
@@ -197,7 +105,8 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
 
         customer_id = existing_customers_numbers[phone_number]['customer_id']
 
-        feedback_date = pd.to_datetime(row.get('Feedback Date', datetime.now())).isoformat()
+        feedback_date = pd.to_datetime(row.get('Date')).isoformat() if not pd.isna(row['Date']) else None
+
         feedback_data = Feedback(
             customer_id=customer_id,
             food_review=convert_rating(row.get('Food Review')),
@@ -207,22 +116,25 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
             value=convert_rating(row.get('Value')),
             where_did_they_hear_about_us=row.get('Where did they hear from us?') if not pd.isna(row['Where did they hear from us?']) else None,
             overall_experience=convert_rating(row.get('Overall Experience')),
-            feedback_date=feedback_date,
-            feedback_text=row.get('Feedback Text', "").strip()
+            feedback_date=feedback_date if feedback_date else datetime.now().isoformat(),
         )
-
+        
+        # Only process feedback if not empty
         if any([feedback_data.food_review, feedback_data.service, feedback_data.cleanliness,
-                feedback_data.atmosphere, feedback_data.value, feedback_data.overall_experience, feedback_data.feedback_text]):
+                feedback_data.atmosphere, feedback_data.value, feedback_data.overall_experience]):
             existing_fb = existing_feedback.get(feedback_data.customer_id)
             if existing_fb:
                 feedbacks_to_update.append({"feedback_id": existing_fb['feedback_id'], **feedback_data.model_dump(exclude_none=True)})
+                if logger:
+                    logger(f"New feedback for customer {customer_id}")
             else:
                 feedbacks_to_insert.append(feedback_data.model_dump(exclude_none=True))
-        # Batch inserts
+
+    # Batch inserts
     if feedbacks_to_insert:
         if logger:
             logger(f"Inserting {len(feedbacks_to_insert)} new feedback entries")
-        # supabase.table(get_table("feedback", use_test_tables)).insert(feedbacks_to_insert).execute()
+        supabase.table(get_table("feedback", use_test_tables)).insert(feedbacks_to_insert).execute()
         
 
     # Batch updates
@@ -231,7 +143,7 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
             logger(f"Updatinf {len(feedbacks_to_update)} feedback entries")
         for feedback in feedbacks_to_update:
             feedback_id = feedback.pop("feedback_id")
-            # supabase.table(get_table("feedback", use_test_tables)).update(feedback).eq("feedback_id", feedback_id).execute()
+            supabase.table(get_table("feedback", use_test_tables)).update(feedback).eq("feedback_id", feedback_id).execute()
         
 
 def process_customer_data(file_path, disable_test_customer_data=False, logger=None):
@@ -257,7 +169,7 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     # Then we process the feedback
     feedback_columns = [
         "Contact Number",
-        "Feedback Date",
+        "Date",
         "Food Review",
         "Service",
         "Cleanliness",
@@ -265,7 +177,6 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
         "Value",
         "Where did they hear from us?",
         "Overall Experience",
-        "Feedback Text"
     ]
     validate_spreadsheet_columns(dataframe, feedback_columns)
     process_feedback(dataframe, use_test_tables, logger)
