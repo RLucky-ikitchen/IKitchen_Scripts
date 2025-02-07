@@ -2,28 +2,22 @@ from datetime import datetime
 import pandas as pd
 
 from src.models import Customer, Feedback
-from typing import List, Dict
 
-from src.data_import.db import supabase, get_table
+
+from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders
 from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns
 
 
-def get_existing_customers(phone_numbers: List[str], use_test_tables: bool) -> Dict[str, dict]:
-    existing_customers_data = supabase.table(get_table("customers", use_test_tables)).select("*").in_("phone_number", phone_numbers).execute()
-    return {cust['phone_number']: cust for cust in existing_customers_data.data}
-
-def get_existing_feedback(customer_ids: List[str], test_tables: bool) -> Dict[str, dict]:
-    existing_feedback_data = supabase.table(get_table("feedback", test_tables)).select("feedback_id", "customer_id").in_("customer_id", customer_ids).execute()
-    return {fb['customer_id']: fb for fb in existing_feedback_data.data}
+def get_phone_numbers_to_process(dataframe):
+    return dataframe['Contact Number'].dropna().apply(standardize_phone_number).dropna().unique().tolist()
 
 
 def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     customers_to_update = {}
     customers_to_insert = {}
 
-
     # Collect all phone numbers for batch query
-    phone_numbers_to_process = dataframe['Contact Number'].dropna().apply(standardize_phone_number).dropna().unique().tolist()
+    phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
     existing_customers_numbers = get_existing_customers(phone_numbers_to_process, use_test_tables)
 
     # We only process customer details if they have a phone number
@@ -54,17 +48,20 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
             customer.customer_id = existing_customer['customer_id']
             update_data = {}
 
-            # Only update fields if there is a value in the spreadsheet
+            # Only update fields if there is a value in the spreadsheet and if the existing customer doesn't already have that value
             for field in ['name', 'email', 'address', 'company_name']:
-                value = getattr(customer, field)
-                if value is not None:
-                    update_data[field] = value
+                current_value = existing_customer[field]
+                new_value = getattr(customer, field)
+        
+                if not current_value and new_value is not None:
+                    update_data[field] = new_value
             # Only update is_VIP if True
-            if customer.is_VIP:
+            if customer.is_VIP and not existing_customer["is_VIP"]:
                 update_data["is_VIP"] = True
 
             if update_data:
                 # Using customer_id as the key
+                print(f"Updating {existing_customer} with {update_data}")
                 if customer.customer_id in customers_to_update:
                     customers_to_update[customer.customer_id].update(update_data)
                 else:
@@ -85,18 +82,40 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
             else:
                 customers_to_insert[phone_number] = customer.model_dump(exclude_unset=True, exclude_none=True)
     
-    
-    # Batch updates
+    # Update existing customers
     if logger:
         logger(f"Updating {len(customers_to_update)} customers..")
     for customer_id, updates in customers_to_update.items():
         supabase.table(get_table("customers", use_test_tables)).update(updates).eq("customer_id", customer_id).execute()
 
-    # Batch inserts
+    # Batch inserts list of new customers
     if logger:
         logger(f"Inserting {len(customers_to_insert)} customers..")
     if customers_to_insert:
         supabase.table(get_table("customers", use_test_tables)).insert(list(customers_to_insert.values())).execute()
+
+
+def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
+    phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
+    receipt_numbers_to_process = dataframe['Receipt No.'].dropna().unique().tolist()
+
+    existing_customers = get_existing_customers(phone_numbers_to_process, use_test_tables)
+    existing_orders = get_existing_orders(receipt_numbers_to_process, use_test_tables)
+
+    for _, row in dataframe.iterrows():
+        phone_number = standardize_phone_number(row.get("Contact Number"))
+        receipt_number = row.get("Receipt No.")
+
+        if receipt_number and phone_number:
+            existing_customer = existing_customers.get(phone_number)
+            order = existing_orders.get(receipt_number)
+
+            if existing_customer and order:
+                if not order.get('customer_id'):
+                    customer_id = existing_customer['customer_id']
+                    supabase.table("orders").update({"customer_id": customer_id}).eq("receipt_id", receipt_number).execute()
+                    if logger:
+                        logger(f"Mapping order {receipt_number} to customer..")
 
 
 def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
@@ -167,6 +186,8 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     # We must first create or update all customers
     validate_spreadsheet_columns(dataframe, "customer_details")
     process_customer_details(dataframe, use_test_tables, logger)
+
+    process_order_mappings(dataframe, use_test_tables, logger)
 
     # Then we process the feedback
     validate_spreadsheet_columns(dataframe, "feedback")

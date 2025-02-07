@@ -20,7 +20,7 @@ class OrderItem(BaseModel):
 
 class Order(BaseModel):
     order_id: str
-    customer_id: str
+    customer_id: Optional[str] = None
     order_date: str
     order_items: List[OrderItem]
     order_items_text: str

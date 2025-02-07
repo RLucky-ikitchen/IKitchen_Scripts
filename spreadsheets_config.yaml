@@ -6,6 +6,7 @@ customer_details:
   - Address
   - Company Name
   - VIP Status
+  - Receipt No.
 
 feedback:
   - Contact Number
