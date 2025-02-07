@@ -1,0 +1,32 @@
+customer_details:
+  - Contact Number
+  - First Name
+  - Last Name
+  - Email
+  - Address
+  - Company Name
+  - VIP Status
+  - Receipt No.
+
+feedback:
+  - Contact Number
+  - Date
+  - Food Review
+  - Service
+  - Cleanliness
+  - Atmosphere
+  - Value
+  - Where did they hear from us?
+  - Overall Experience
+
+servquick_columns:
+  - Receipt no
+  - Item quantity
+  - Item amount
+  - Item name
+  - Customer mobile
+  - Customer email
+  - Customer address
+  - Customer name
+  - Sale date
+  - Ordertype name

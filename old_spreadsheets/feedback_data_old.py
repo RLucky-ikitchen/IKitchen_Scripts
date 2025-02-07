@@ -1,5 +1,5 @@
 from supabase import create_client, Client
-from utils import standardize_phone_number, convert_rating
+from src.utils import standardize_phone_number, convert_rating
 from dotenv import load_dotenv
 from datetime import datetime
 import pandas as pd
