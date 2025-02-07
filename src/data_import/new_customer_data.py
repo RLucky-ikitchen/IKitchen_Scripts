@@ -61,7 +61,8 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
 
             if update_data:
                 # Using customer_id as the key
-                print(f"Updating {existing_customer} with {update_data}")
+                if logger:
+                    logger(f"Updating customer {phone_number} with {update_data}")
                 if customer.customer_id in customers_to_update:
                     customers_to_update[customer.customer_id].update(update_data)
                 else:
@@ -113,9 +114,9 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
             if existing_customer and order:
                 if not order.get('customer_id'):
                     customer_id = existing_customer['customer_id']
-                    supabase.table("orders").update({"customer_id": customer_id}).eq("receipt_id", receipt_number).execute()
+                    supabase.table(get_table("orders", use_test_tables)).update({"customer_id": customer_id}).eq("receipt_id", receipt_number).execute()
                     if logger:
-                        logger(f"Mapping order {receipt_number} to customer..")
+                        logger(f"Mapping order {receipt_number} to customer {phone_number}")
 
 
 def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
@@ -170,7 +171,7 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
     # Batch updates
     if feedbacks_to_update:
         if logger:
-            logger(f"Updatinf {len(feedbacks_to_update)} feedback entries")
+            logger(f"Updating {len(feedbacks_to_update)} feedback entries")
         for feedback in feedbacks_to_update:
             feedback_id = feedback.pop("feedback_id")
             supabase.table(get_table("feedback", use_test_tables)).update(feedback).eq("feedback_id", feedback_id).execute()
