@@ -133,9 +133,9 @@ SET is_top_customer = (
 );
 
 -----------------------------------------------------------------------------------------------------------------
--- Add unique constraint feedback
-ALTER TABLE feedback
-ADD CONSTRAINT unique_customer_id UNIQUE (customer_id);
+-- -- Add unique constraint feedback
+-- ALTER TABLE feedback
+-- ADD CONSTRAINT unique_customer_id UNIQUE (customer_id);
 
 
 -- Add unique constraint receipt id
