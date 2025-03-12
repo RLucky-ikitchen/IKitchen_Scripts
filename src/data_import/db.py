@@ -20,15 +20,13 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 PROD_TABLES = {
     "customers": "customers",
     "orders": "orders",
-    "feedback": "feedback",
-    "memory": "memory"
+    "feedback": "feedback"
 }
 
 TEST_TABLES = {
     "customers": "customers_testing",
     "orders": "orders_testing",
-    "feedback": "feedback_testing",
-    "memory": "memory_testing"
+    "feedback": "feedback_testing"
 }
 
 
