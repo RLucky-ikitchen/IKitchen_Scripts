@@ -177,6 +177,39 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
             supabase.table(get_table("feedback", use_test_tables)).update(feedback).eq("feedback_id", feedback_id).execute()
         
 
+def process_memory_entries(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
+    """
+    Process remarks from the spreadsheet and insert them into the 'memory' table.
+    """
+    memory_entries = []
+
+    # Collect all phone numbers to map them to existing customers
+    phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
+    existing_customers_numbers = get_existing_customers(phone_numbers_to_process, use_test_tables)
+
+    for _, row in dataframe.iterrows():
+        phone_number = standardize_phone_number(row.get("Contact Number"))
+        remarks = row.get("Remarks")
+
+        if pd.isna(phone_number) or not phone_number or pd.isna(remarks) or not remarks.strip():
+            continue  # Skip if phone number or remarks are empty
+
+        customer = existing_customers_numbers.get(phone_number)
+        if customer:
+            memory_entries.append({
+                "customer_id": customer['customer_id'],
+                "content": remarks.strip(),
+                "source": "spreadsheet",
+                "created_at": datetime.now().isoformat()
+            })
+
+    # Insert into 'memory' table
+    if memory_entries:
+        if logger:
+            logger(f"Inserting {len(memory_entries)} new memory entries")
+        supabase.table(get_table("memory", use_test_tables)).insert(memory_entries).execute()
+        
+
 def process_customer_data(file_path, disable_test_customer_data=False, logger=None):
     """
     Process the spreadsheet and update the Supabase database.
@@ -193,3 +226,6 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     # Then we process the feedback
     validate_spreadsheet_columns(dataframe, "feedback")
     process_feedback(dataframe, use_test_tables, logger)
+    
+    # Process remarks into memory table
+    process_memory_entries(dataframe, use_test_tables, logger)
