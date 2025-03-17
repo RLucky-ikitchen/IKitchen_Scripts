@@ -6,6 +6,3 @@ openpyxl
 streamlit
 xlrd
 pyyaml
-cv2
-pytessaract
-openai

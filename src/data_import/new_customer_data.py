@@ -225,3 +225,4 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     
     # Process remarks into memory table
     process_memory_entries(dataframe, use_test_tables, logger)
+
