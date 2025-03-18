@@ -6,6 +6,6 @@ openpyxl
 streamlit
 xlrd
 pyyaml
-cv2
-pytessaract
+opencv-python
+pytesseract
 openai
