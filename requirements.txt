@@ -7,5 +7,4 @@ streamlit
 xlrd
 pyyaml
 opencv-python
-pytesseract
 openai

@@ -16,11 +16,11 @@ def extract_and_format_business_card(image_path):
     Extract the following details from the business card image and format them as JSON:
     - Name
     - Email
-    - Phone (If multiple, list all)
+    - Phone (If multiple, return only one)
     - Company Name
-    - Address (If multiple, list all)
+    - Address (If multiple, return only one)
 
-    If a field is missing, use null as its value.
+    If a field is missing, return an empty string ("").
     """
 
     try:
