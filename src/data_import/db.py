@@ -42,6 +42,7 @@ def get_table(name: str, testing: bool):
 
 
 def reset_test_data():
+    supabase.table('memory_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
     supabase.table('feedback_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
     supabase.table('orders_testing').delete().neq("receipt_id", "").execute()
     supabase.table('customers_testing').delete().neq("customer_id", "00000000-0000-0000-0000-000000000000").execute()
@@ -60,11 +61,22 @@ def get_existing_orders(receipt_numbers: List[str], use_test_tables: bool) -> Di
     return {order['receipt_id']: order for order in existing_orders_data.data}
 
 
-def get_existing_receipts_ids(receipt_numbers: List[str], use_test_tables: bool):
+def get_existing_receipts_ids(receipt_numbers: List[str], use_test_tables: bool, batch_size: int = 100):
     existing_receipts = set()
-    existing_orders_data = supabase.table(get_table("orders", use_test_tables)).select("*").in_("receipt_id", receipt_numbers).execute()
-    existing_receipts.update([item["receipt_id"] for item in existing_orders_data.data])
+    table = supabase.table(get_table("orders", use_test_tables))
+
+    for i in range(0, len(receipt_numbers), batch_size):
+        batch = receipt_numbers[i:i + batch_size]
+        try:
+            response = table.select("*").in_("receipt_id", batch).execute()
+            if response.data:
+                existing_receipts.update([item["receipt_id"] for item in response.data])
+        except Exception as e:
+            print(f"Error fetching receipts batch {i}-{i+len(batch)}: {e}")
+            continue  # Or raise if you want to stop on error
+
     return existing_receipts
+
 
 
 def batch_insert_orders(orders: List[Order], use_test_tables):
