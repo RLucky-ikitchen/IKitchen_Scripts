@@ -52,9 +52,23 @@ def get_existing_customers(phone_numbers: List[str], use_test_tables: bool) -> D
     existing_customers_data = supabase.table(get_table("customers", use_test_tables)).select("*").in_("phone_number", phone_numbers).execute()
     return {cust['phone_number']: cust for cust in existing_customers_data.data}
 
-def get_existing_feedback(customer_ids: List[str], use_test_tables: bool) -> Dict[str, dict]:
-    existing_feedback_data = supabase.table(get_table("feedback", use_test_tables)).select("feedback_id", "customer_id").in_("customer_id", customer_ids).execute()
-    return {fb['customer_id']: fb for fb in existing_feedback_data.data}
+def get_existing_feedback(customer_ids: List[str], use_test_tables: bool, batch_size: int = 100) -> Dict[str, dict]:
+    existing_feedback = {}
+    table = supabase.table(get_table("feedback", use_test_tables))
+
+    for i in range(0, len(customer_ids), batch_size):
+        batch = customer_ids[i:i + batch_size]
+        try:
+            response = table.select("feedback_id", "customer_id").in_("customer_id", batch).execute()
+            if response.data:
+                for fb in response.data:
+                    existing_feedback[fb["customer_id"]] = fb
+        except Exception as e:
+            print(f"Error fetching feedback batch {i}-{i + len(batch)}: {e}")
+            raise
+
+    return existing_feedback
+
 
 def get_existing_orders(receipt_numbers: List[str], use_test_tables: bool) -> Dict[str, dict]:
     existing_orders_data = supabase.table(get_table("orders", use_test_tables)).select("*").in_("receipt_id", receipt_numbers).execute()

@@ -119,6 +119,24 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
                         logger(f"Mapping order {receipt_number} to customer {phone_number}")
 
 
+def normalize_feedback_source(source: str) -> str | None:
+    if pd.isna(source):
+        return None
+
+    source = source.strip()
+
+    if source == "Passing by":
+        return "Passing by"
+    elif source == "Friends and Family" or source == "Family and Friends":
+        return "Friends and Family"
+    elif source in {"Facebook", "Instagram", "Ads"}:
+        return "Social Media"
+    elif source == "Social Media":
+        return "Social Media"
+    else:
+        return None
+
+
 def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     feedbacks_to_insert = []
     feedbacks_to_update = []
@@ -145,7 +163,7 @@ def process_feedback(dataframe: pd.DataFrame, use_test_tables: bool = True, logg
             cleanliness=convert_rating(row.get('Cleanliness')),
             atmosphere=convert_rating(row.get('Atmosphere')),
             value=convert_rating(row.get('Value')),
-            where_did_they_hear_about_us=row.get('Where did they hear from us?') if not pd.isna(row['Where did they hear from us?']) else None,
+            where_did_they_hear_about_us=normalize_feedback_source(row.get('Where did they hear from us?')),
             overall_experience=convert_rating(row.get('Overall Experience')),
             feedback_date=feedback_date if feedback_date else datetime.now().isoformat(),
         )
@@ -207,22 +225,27 @@ def process_memory_entries(dataframe: pd.DataFrame, use_test_tables: bool = True
 
 
 def process_customer_data(file_path, disable_test_customer_data=False, logger=None):
-    """
-    Process the spreadsheet and update the Supabase database.
-    """
     use_test_tables = not disable_test_customer_data
     dataframe = get_spreadsheet_data(file_path)
     
+    
+    # We must first create or update all customers
+
     # We must first create or update all customers
     validate_spreadsheet_columns(dataframe, "customer_details")
+    logger and logger("✅ Step 1: Processing customer details")
     process_customer_details(dataframe, use_test_tables, logger)
 
+    logger and logger("✅ Step 2: Processing order mappings")
     process_order_mappings(dataframe, use_test_tables, logger)
 
-    # Then we process the feedback
     validate_spreadsheet_columns(dataframe, "feedback")
+    logger and logger("✅ Step 3: Processing feedback")
     process_feedback(dataframe, use_test_tables, logger)
-    
-    # Process remarks into memory table
+
+    logger and logger("✅ Step 4: Processing memory entries")
     process_memory_entries(dataframe, use_test_tables, logger)
+
+    logger and logger("🎉 All steps completed successfully")
+
 
