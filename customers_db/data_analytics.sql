@@ -58,12 +58,12 @@ WHERE order_type = 'Delivery';
 -- 10. Avg spent Take-Away
 SELECT AVG(total_amount) AS avg_spent_take_away
 FROM orders
-WHERE order_type = 'TakeAway';
+WHERE order_type = 'Take away';
 
 -- 11. Avg spent Dine-In
 SELECT AVG(total_amount) AS avg_spent_dine_in
 FROM orders
-WHERE order_type = 'DineIn';
+WHERE order_type = 'Dine-In';
 
 
 ------------------------------------------------
