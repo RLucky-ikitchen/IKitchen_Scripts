@@ -1,17 +1,19 @@
-import os
-import json
-import argparse
 import base64
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
+import os
+
+
+from src.data_import.db import supabase, get_table, get_existing_customers
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Function to extract and format business card data using OpenAI Vision
-def extract_and_format_business_card(image_path):
+
+def extract_and_format_business_card_from_bytes(image_bytes):
     prompt = """
     Extract the following details from the business card image and format them as JSON:
     - Name
@@ -24,12 +26,9 @@ def extract_and_format_business_card(image_path):
     """
 
     try:
-        # Read image and encode as base64
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
-            base64_image = base64.b64encode(image_data).decode('utf-8')
-            data_url = f"data:image/jpeg;base64,{base64_image}"
-        
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        data_url = f"data:image/jpeg;base64,{base64_image}"
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -50,39 +49,34 @@ def extract_and_format_business_card(image_path):
         print(f"OpenAI API Error: {e}")
         return None
 
-# Function to process all business cards in a folder
-def process_all_business_cards(folder_path, output_path):
-    os.makedirs(output_path, exist_ok=True)
-    all_data = []
 
-    for filename in os.listdir(folder_path):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            image_path = os.path.join(folder_path, filename)
-            structured_data = extract_and_format_business_card(image_path)
+def process_all_business_cards(data: dict, use_test_tables: bool = False):
+    customers_table = get_table("customers", use_test_tables)
 
-            if structured_data:
-                all_data.append(structured_data)
+    phone = data.get("Phone")
+    if not phone:
+        print("No phone number found, skipping entry.")
+        return False
 
-                json_filename = os.path.join(output_path, os.path.splitext(filename)[0] + ".json")
-                with open(json_filename, "w", encoding="utf-8") as json_file:
-                    json.dump(structured_data, json_file, indent=4)
+    existing_customers = get_existing_customers([phone], use_test_tables)
+    cleaned_data = {
+        "name": data.get("Name", ""),
+        "email": data.get("Email", ""),
+        "phone_number": phone,
+        "company": data.get("Company Name", ""),
+        "address": data.get("Address", "")
+    }
 
-                print(f"Processed: {filename} -> {json_filename}")
-            else:
-                print(f"Failed to process {filename}")
+    if phone in existing_customers:
+        existing = existing_customers[phone]
+        update_payload = {
+            key: value
+            for key, value in cleaned_data.items()
+            if value and (not existing.get(key) or existing.get(key) == "")
+        }
+        if update_payload:
+            supabase.table(customers_table).update(update_payload).eq("phone_number", phone).execute()
+    else:
+        supabase.table(customers_table).insert(cleaned_data).execute()
 
-    all_json_path = os.path.join(output_path, "all_business_cards.json")
-    with open(all_json_path, "w", encoding="utf-8") as json_file:
-        json.dump(all_data, json_file, indent=4)
-
-    print(f"All business cards processed and saved to {all_json_path}!")
-
-# Main Execution with Command-Line Arguments
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Business Card Extraction using OpenAI Vision")
-    parser.add_argument("folder_path", type=str, help="Path to folder containing images")
-    parser.add_argument("output_path", type=str, help="Path to save JSON results")
-    
-    args = parser.parse_args()
-
-    process_all_business_cards(args.folder_path, args.output_path)
+    return True
