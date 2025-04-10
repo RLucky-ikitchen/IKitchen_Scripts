@@ -13,7 +13,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-def extract_and_format_business_card_from_bytes(image_bytes):
+def extract_and_format_business_card(image_bytes):
     prompt = """
     Extract the following details from the business card image and format them as JSON:
     - Name
@@ -50,33 +50,60 @@ def extract_and_format_business_card_from_bytes(image_bytes):
         return None
 
 
-def process_all_business_cards(data: dict, use_test_tables: bool = False):
-    customers_table = get_table("customers", use_test_tables)
+def upsert_customer_data(data, test_mode=False, logger=None):
+    def log(message):
+        if logger:
+            logger(message)
+        else:
+            print(message)
 
-    phone = data.get("Phone")
+    phone = data.get("Phone", "").strip()
     if not phone:
-        print("No phone number found, skipping entry.")
-        return False
+        log("No phone number found. Skipping entry.")
+        return
 
-    existing_customers = get_existing_customers([phone], use_test_tables)
-    cleaned_data = {
-        "name": data.get("Name", ""),
-        "email": data.get("Email", ""),
-        "phone_number": phone,
-        "company": data.get("Company Name", ""),
-        "address": data.get("Address", "")
+    # Check if a customer with the same phone number exists
+    existing = supabase.table("customers").select("*").eq("phone", phone).execute()
+
+    record = {
+        "name": data.get("Name", "").strip(),
+        "email": data.get("Email", "").strip(),
+        "phone": phone,
+        "company": data.get("Company Name", "").strip(),
+        "address": data.get("Address", "").strip()
     }
 
-    if phone in existing_customers:
-        existing = existing_customers[phone]
-        update_payload = {
-            key: value
-            for key, value in cleaned_data.items()
-            if value and (not existing.get(key) or existing.get(key) == "")
-        }
-        if update_payload:
-            supabase.table(customers_table).update(update_payload).eq("phone_number", phone).execute()
+    if test_mode:
+        log(f"\n--- Test Mode Entry ---\n{json.dumps(record, indent=4)}")
     else:
-        supabase.table(customers_table).insert(cleaned_data).execute()
+        if existing.data and len(existing.data) > 0:
+            customer_id = existing.data[0]["id"]
+            supabase.table("customers").update(record).eq("id", customer_id).execute()
+            log(f"Updated existing customer: {phone}")
+        else:
+            supabase.table("customers").insert(record).execute()
+            log(f"Inserted new customer: {phone}")
 
-    return True
+
+def process_all_business_cards(uploaded_files, test_mode=False, logger=None):
+    def log(message):
+        if logger:
+            logger(message)
+        else:
+            print(message)
+
+    for uploaded_file in uploaded_files:
+        try:
+            temp_path = os.path.join("temp_card.jpg")
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            data = extract_and_format_business_card(temp_path)
+            if data:
+                upsert_customer_data(data, test_mode=test_mode, logger=logger)
+            else:
+                log(f"Failed to extract data from {uploaded_file.name}")
+            os.remove(temp_path)
+
+        except Exception as e:
+            log(f"Error processing {uploaded_file.name}: {e}")
