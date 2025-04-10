@@ -1,10 +1,10 @@
 import base64
 import json
+import os
 from openai import OpenAI
 from dotenv import load_dotenv
-import os
 
-
+from src.utils import standardize_phone_number, is_valid_email
 from src.data_import.db import supabase, get_table, get_existing_customers
 
 load_dotenv()
@@ -50,42 +50,66 @@ def extract_and_format_business_card(image_bytes):
         return None
 
 
-def upsert_customer_data(data, test_mode=False, logger=None):
+def upsert_customer_data(data, test_mode=True, logger=None):
     def log(message):
         if logger:
             logger(message)
         else:
             print(message)
 
-    phone = data.get("Phone", "").strip()
-    if not phone:
-        log("No phone number found. Skipping entry.")
+    raw_phone = data.get("Phone", "").strip()
+    phone_number = standardize_phone_number(raw_phone)
+    if not phone_number:
+        log("No valid phone number found. Skipping entry.")
         return
 
-    # Check if a customer with the same phone number exists
-    existing = supabase.table("customers").select("*").eq("phone", phone).execute()
+    email = data.get("Email", "").strip()
+    email = email if is_valid_email(email) else None
 
-    record = {
-        "name": data.get("Name", "").strip(),
-        "email": data.get("Email", "").strip(),
-        "phone": phone,
-        "company": data.get("Company Name", "").strip(),
-        "address": data.get("Address", "").strip()
+    name = data.get("Name", "").strip()
+    address = data.get("Address", "").strip()
+    company_name = data.get("Company Name", "").strip()
+
+    new_data = {
+        "phone_number": phone_number,
+        "name": name if name else None,
+        "email": email,
+        "address": address if address else None,
+        "company_name": company_name if company_name else None
     }
 
-    if test_mode:
-        log(f"\n--- Test Mode Entry ---\n{json.dumps(record, indent=4)}")
-    else:
-        if existing.data and len(existing.data) > 0:
-            customer_id = existing.data[0]["id"]
-            supabase.table("customers").update(record).eq("id", customer_id).execute()
-            log(f"Updated existing customer: {phone}")
+    customer_table = get_table("customers", test_mode)
+    existing_customers = get_existing_customers([phone_number], test_mode)
+
+    if phone_number in existing_customers:
+        customer_id = existing_customers[phone_number]["customer_id"]
+
+        # Get the full existing record
+        existing_record_resp = supabase.table(customer_table).select("*").eq("customer_id", customer_id).single().execute()
+        existing_record = existing_record_resp.data if existing_record_resp.data else {}
+
+        updated_fields = {}
+
+        for key in ["name", "email", "address", "company_name"]:
+            current_value = existing_record.get(key)
+            new_value = new_data.get(key)
+
+            if (current_value is None or current_value == "") and new_value:
+                updated_fields[key] = new_value
+
+        if updated_fields:
+            log(f"Updating fields for customer {phone_number}: {updated_fields}")
+            supabase.table(customer_table).update(updated_fields).eq("customer_id", customer_id).execute()
         else:
-            supabase.table("customers").insert(record).execute()
-            log(f"Inserted new customer: {phone}")
+            log(f"No new fields to update for existing customer: {phone_number}")
+
+    else:
+        log(f"Inserting new customer {phone_number}")
+        supabase.table(customer_table).insert(new_data).execute()
 
 
-def process_all_business_cards(uploaded_files, test_mode=False, logger=None):
+
+def process_all_business_cards(uploaded_files, test_mode=True, logger=None):
     def log(message):
         if logger:
             logger(message)
@@ -94,16 +118,13 @@ def process_all_business_cards(uploaded_files, test_mode=False, logger=None):
 
     for uploaded_file in uploaded_files:
         try:
-            temp_path = os.path.join("temp_card.jpg")
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            image_bytes = uploaded_file.read()
+            data = extract_and_format_business_card(image_bytes)
 
-            data = extract_and_format_business_card(temp_path)
             if data:
                 upsert_customer_data(data, test_mode=test_mode, logger=logger)
             else:
                 log(f"Failed to extract data from {uploaded_file.name}")
-            os.remove(temp_path)
 
         except Exception as e:
             log(f"Error processing {uploaded_file.name}: {e}")
