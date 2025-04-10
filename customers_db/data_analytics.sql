@@ -14,25 +14,55 @@ FROM customers
 WHERE "is_VIP" = TRUE;
 
 -- 3. Returning
+-- First, check for mismatches:
+SELECT c.customer_id, c.is_returning_customer AS stored_flag, actual.should_be_returning
+FROM customers c
+JOIN (
+  SELECT customer_id,
+         COUNT(DISTINCT DATE(order_date)) >= 2 AS should_be_returning
+  FROM orders
+  GROUP BY customer_id
+) actual ON c.customer_id = actual.customer_id
+WHERE c.is_returning_customer IS DISTINCT FROM actual.should_be_returning;
+
+
+-- If all good, run:
 SELECT COUNT(*) AS returning_customers
 FROM customers
 WHERE is_returning_customer = TRUE;
 
--- 4. % Returning
--- (Calculates the percentage of returning customers among all customers)
-SELECT 
-    ROUND(
-        (COUNT(*) FILTER (WHERE is_returning_customer = TRUE) * 100.0 / COUNT(*)),
-        2
-    ) AS returning_percentage
-FROM customers;
 
--- 5. "Top" Customers
+-- 4. "Top" Customers
+-- First, check for mismatches:
+SELECT c.customer_id, c.is_top_customer AS stored_flag, actual.should_be_top
+FROM customers c
+JOIN (
+  SELECT customer_id,
+         (SUM(total_amount) > 20000 OR COUNT(DISTINCT DATE(order_date)) >= 3) AS should_be_top
+  FROM orders
+  GROUP BY customer_id
+) actual ON c.customer_id = actual.customer_id
+WHERE c.is_top_customer IS DISTINCT FROM actual.should_be_top;
+
+
+-- If all good, run:
 SELECT COUNT(*) AS top_customers
 FROM customers
 WHERE is_top_customer = TRUE;
 
--- 6. Avg visits count
+-- 5. Avg visits count
+
+-- First, check for mismatches:
+SELECT c.customer_id, c.visit_counts AS stored_count, actual.actual_count
+FROM customers c
+JOIN (
+  SELECT customer_id, COUNT(DISTINCT DATE(order_date)) AS actual_count
+  FROM orders
+  GROUP BY customer_id
+) actual ON c.customer_id = actual.customer_id
+WHERE c.visit_counts IS DISTINCT FROM actual.actual_count;
+
+-- If all good, run:
 SELECT AVG(visit_counts) AS avg_visit_counts
 FROM customers
 WHERE visit_counts IS NOT NULL;
