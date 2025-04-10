@@ -54,7 +54,7 @@ $$ LANGUAGE plpgsql;
 
 -- Trigger for returning customer
 CREATE TRIGGER check_returning_customer
-AFTER INSERT ON orders
+AFTER INSERT OR UPDATE ON orders
 FOR EACH ROW
 EXECUTE FUNCTION update_is_returning();
 
