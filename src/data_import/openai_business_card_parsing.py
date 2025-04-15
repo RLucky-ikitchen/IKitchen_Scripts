@@ -1,17 +1,19 @@
-import os
-import json
-import argparse
 import base64
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
+import os
+from src.utils import standardize_phone_number, is_valid_email
+
+from src.data_import.db import supabase, get_table, get_existing_customers
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Function to extract and format business card data using OpenAI Vision
-def extract_and_format_business_card(image_path):
+
+def extract_and_format_business_card(image_bytes):
     prompt = """
     Extract the following details from the business card image and format them as JSON:
     - Name
@@ -24,12 +26,9 @@ def extract_and_format_business_card(image_path):
     """
 
     try:
-        # Read image and encode as base64
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
-            base64_image = base64.b64encode(image_data).decode('utf-8')
-            data_url = f"data:image/jpeg;base64,{base64_image}"
-        
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        data_url = f"data:image/jpeg;base64,{base64_image}"
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -50,39 +49,93 @@ def extract_and_format_business_card(image_path):
         print(f"OpenAI API Error: {e}")
         return None
 
-# Function to process all business cards in a folder
-def process_all_business_cards(folder_path, output_path):
-    os.makedirs(output_path, exist_ok=True)
-    all_data = []
 
-    for filename in os.listdir(folder_path):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            image_path = os.path.join(folder_path, filename)
-            structured_data = extract_and_format_business_card(image_path)
+def upsert_customer_data_batch(parsed_data_list, test_mode=True, logger=None):
+    def log(msg):
+        if logger:
+            logger(msg)
+        else:
+            print(msg)
 
-            if structured_data:
-                all_data.append(structured_data)
+    if not parsed_data_list:
+        log("No parsed data to process.")
+        return
 
-                json_filename = os.path.join(output_path, os.path.splitext(filename)[0] + ".json")
-                with open(json_filename, "w", encoding="utf-8") as json_file:
-                    json.dump(structured_data, json_file, indent=4)
+    customer_table = get_table("customers", test_mode)
 
-                print(f"Processed: {filename} -> {json_filename}")
+    # Prepare phone mapping and standardize numbers
+    phone_map = {}
+    for data in parsed_data_list:
+        raw_phone = data.get("Phone", "").strip()
+        phone_number = standardize_phone_number(raw_phone)
+        if phone_number:
+            phone_map[phone_number] = data
+
+    phone_numbers = list(phone_map.keys())
+    existing_customers = get_existing_customers(phone_numbers, test_mode)
+
+    records_to_insert = []
+
+    for phone_number, data in phone_map.items():
+        existing = existing_customers.get(phone_number)
+        name = data.get("Name", "").strip()
+        email = data.get("Email", "").strip()
+        company = data.get("Company Name", "").strip()
+        address = data.get("Address", "").strip()
+
+        email = email if is_valid_email(email) else None
+
+        record = {
+            "phone_number": phone_number,
+            "name": name or None,
+            "email": email,
+            "company_name": company or None,
+            "address": address or None
+        }
+
+        if existing:
+            customer_id = existing["customer_id"]
+            updated_fields = {}
+            for field in ["name", "email", "company_name", "address"]:
+                existing_val = existing.get(field)
+                new_val = record.get(field)
+                if (not existing_val) and new_val:
+                    updated_fields[field] = new_val
+
+            if updated_fields:
+                log(f"Updating {phone_number}: {updated_fields}")
+                supabase.table(customer_table).update(updated_fields).eq("customer_id", customer_id).execute()
             else:
-                print(f"Failed to process {filename}")
+                log(f"No update needed for existing customer: {phone_number}")
+        else:
+            records_to_insert.append(record)
 
-    all_json_path = os.path.join(output_path, "all_business_cards.json")
-    with open(all_json_path, "w", encoding="utf-8") as json_file:
-        json.dump(all_data, json_file, indent=4)
+    if records_to_insert:
+        inserted_phones = [r['phone_number'] for r in records_to_insert]
+        log(f"Inserting {len(records_to_insert)} new customers: {inserted_phones}")
+        supabase.table(customer_table).insert(records_to_insert).execute()
+    else:
+        log("No new customers to insert.")
 
-    print(f"All business cards processed and saved to {all_json_path}!")
 
-# Main Execution with Command-Line Arguments
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Business Card Extraction using OpenAI Vision")
-    parser.add_argument("folder_path", type=str, help="Path to folder containing images")
-    parser.add_argument("output_path", type=str, help="Path to save JSON results")
-    
-    args = parser.parse_args()
+def process_all_business_cards(uploaded_files, test_mode=True, logger=None):
+    def log(msg):
+        if logger:
+            logger(msg)
+        else:
+            print(msg)
 
-    process_all_business_cards(args.folder_path, args.output_path)
+    parsed_data_list = []
+
+    for uploaded_file in uploaded_files:
+        try:
+            image_bytes = uploaded_file.read()
+            data = extract_and_format_business_card(image_bytes)
+            if data:
+                parsed_data_list.append(data)
+            else:
+                log(f"Failed to extract data from {uploaded_file.name}")
+        except Exception as e:
+            log(f"Error processing {uploaded_file.name}: {e}")
+
+    upsert_customer_data_batch(parsed_data_list, test_mode=test_mode, logger=logger)

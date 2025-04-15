@@ -1,9 +1,11 @@
 import streamlit as st
 from src.data_import.servquick_pos_data import process_pos_data 
 from src.data_import.new_customer_data import process_customer_data
+from src.data_import.openai_business_card_parsing import process_all_business_cards
 from src.data_import.db import reset_test_data
 import os
 from io import StringIO
+
 
 
 # Set up the Streamlit app
@@ -17,7 +19,7 @@ with st.expander("Import Data"):
 3. Set the Time Frame (for example, last month)
 4. Export as csv or xls
 """)
-    uploaded_file = st.file_uploader("Choose a file", type=["xls", "csv"])
+    uploaded_file = st.file_uploader("Choose a file", type=["xls", "csv"], key="pos_file")
 
     disable_test_pos_data = st.toggle("Disable Test Mode", key='POS data test')
 
@@ -65,7 +67,7 @@ with st.expander("Import Data"):
 1. Access the [Customer Data Spreadsheet](https://docs.google.com/spreadsheets/d/1NoUYJkeKRGx5XRI18geTr5km9QZhUwKJcgVva5wcRtE/edit?gid=0#gid=0)
 2. Select the desired month/year and download as .csv (Do not download as .xlsx !)
 """)
-    uploaded_file = st.file_uploader("Choose a file", type=["csv"])
+    uploaded_file = st.file_uploader("Choose a file", type=["csv"], key="customer_file")
 
     disable_test_customer_data = st.toggle("Disable Test Mode", key='customer data test')
 
@@ -105,6 +107,52 @@ with st.expander("Import Data"):
             os.remove(temp_file_path)
         else:
             st.warning("Please upload a file before clicking the 'Process File' button.")
+
+
+st.header("Business Card Import")
+with st.expander("Import Data"):
+    st.markdown("""
+    ## Business Card Import
+    Upload business card images (JPG or PNG) to extract contact information and add to the database.
+    
+    **The system will:**
+    1. Extract name, email, phone, company, and address from each card
+    2. Use phone number as the unique identifier
+    3. Create new customer records or update existing ones with missing information
+    """)
+    
+    uploaded_files = st.file_uploader("Upload business card images", 
+                                      type=["jpg", "jpeg", "png"], 
+                                      accept_multiple_files=True,
+                                      key="business_card_files")
+
+    disable_test_business_card = st.toggle("Disable Test Mode", key='business card test')
+
+    # Button to process the business cards
+    if st.button("Process Business Cards", key='business card process'):
+        if uploaded_files and len(uploaded_files) > 0:
+            try:
+                log_buffer = StringIO()
+                log_placeholder = st.empty()  # Placeholder for real-time logs
+
+                def log_function(message):
+                    """Append message to the log buffer and update Streamlit UI."""
+                    log_buffer.write(message + "\n")
+                    log_placeholder.text(log_buffer.getvalue())
+
+                with st.spinner("Processing business card images..."):
+                    process_all_business_cards(
+                        uploaded_files, 
+                        test_mode=not disable_test_business_card,
+                        logger=log_function
+                    )
+
+                st.success(f"Processed {len(uploaded_files)} business cards and updated database!")
+
+            except Exception as e:
+                st.error(f"An error occurred while processing business cards: {e}")
+        else:
+            st.warning("Please upload at least one business card image before processing.")
 
 
 st.header("Reset all Testing data")
