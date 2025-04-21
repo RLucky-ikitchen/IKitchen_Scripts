@@ -8,3 +8,5 @@ xlrd
 pyyaml
 opencv-python
 openai
+promptlayer
+requests
