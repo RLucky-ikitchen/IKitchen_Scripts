@@ -112,14 +112,11 @@ with st.expander("Import Data"):
 st.header("Business Card Import")
 with st.expander("Import Data"):
     st.markdown("""
-    ## Business Card Import
-    Upload business card images (JPG or PNG) to extract contact information and add to the database.
-    
-    **The system will:**
-    1. Extract name, email, phone, company, and address from each card
-    2. Use phone number as the unique identifier
-    3. Create new customer records or update existing ones with missing information
-    """)
+1. Access the [Business Card Scanner Folder](https://drive.google.com/drive/folders/1L_XK2i2OJoncZLk2M2i64TzEZ9Ro3LLe)
+2. Download the images from the **New JPEG** folder
+3. After uploading, move them to the **Old JPEG** folder in Drive to avoid duplicate processing
+4. Upload the downloaded images below
+""")
     
     uploaded_files = st.file_uploader("Upload business card images", 
                                       type=["jpg", "jpeg", "png"], 
