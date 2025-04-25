@@ -2,6 +2,7 @@ import streamlit as st
 from src.data_import.servquick_pos_data import process_pos_data 
 from src.data_import.new_customer_data import process_customer_data
 from src.data_import.openai_business_card_parsing import process_all_business_cards
+from src.data_import.process_ivr_audio import process_audio_files
 from src.data_import.db import reset_test_data
 import os
 from io import StringIO
@@ -151,6 +152,41 @@ with st.expander("Import Data"):
         else:
             st.warning("Please upload at least one business card image before processing.")
 
+
+st.header("IVR Audio Import")
+with st.expander("Import Data"):
+    st.markdown("""
+    1. Access the [IVR audio recordings](https://drive.google.com/drive/folders/1XsSeJVCZts1ERFunr8TNt5GCF-A7iChi)
+    2. Download the audio files that you want to process
+    3. Upload the downloaded files below
+                """)
+    uploaded_files = st.file_uploader("Upload IVR audio files", type=["mp3"], accept_multiple_files=True, key="ivr_audio_files")
+    disable_test_ivr_audio = st.toggle("Disable Test Mode", key='IVR audio test')
+    # Button to process the IVR audio files
+    if st.button("Process IVR Audio Files", key='IVR audio process'):
+        if uploaded_files and len(uploaded_files) > 0:
+            try:
+                log_buffer = StringIO()
+                log_placeholder = st.empty()  # Placeholder for real-time logs
+
+                def log_function(message):
+                    """Append message to the log buffer and update Streamlit UI."""
+                    log_buffer.write(message + "\n")
+                    log_placeholder.text(log_buffer.getvalue())
+
+                with st.spinner("Processing IVR audio files..."):
+                    process_audio_files(
+                        uploaded_files, 
+                        test_mode=not disable_test_ivr_audio,
+                        logger=log_function
+                    )
+
+                st.success(f"Processed {len(uploaded_files)} IVR audio files and updated database!")
+
+            except Exception as e:
+                st.error(f"An error occurred while processing IVR audio files: {e}")
+        else:
+            st.warning("Please upload at least one IVR audio file before processing.")
 
 st.header("Reset all Testing data")
 if st.button("Reset", key='test data reset'):
