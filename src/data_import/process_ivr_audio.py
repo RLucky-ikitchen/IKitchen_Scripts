@@ -1,111 +1,150 @@
 import os
 import re
 import json
-import argparse
-from glob import glob
 from datetime import datetime
-from dotenv import load_dotenv
 from promptlayer import PromptLayer
 import requests
+from supabase import create_client, Client
+from src.data_import.db import get_table, get_existing_customers
+from src.utils import standardize_phone_number
+import traceback
 
-# Load environment variables from .env
+# Load environment variables
+from dotenv import load_dotenv
 load_dotenv()
 
-# Set up PromptLayer client
+# PromptLayer and ElevenLabs setup
 promptlayer_client = PromptLayer(api_key=os.environ["PROMPTLAYER_API_KEY"])
-
-# ElevenLabs API setup
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
 ELEVENLABS_MODEL_ID = os.environ.get("ELEVENLABS_MODEL_ID", "scribe_v1")
 ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 
+# Supabase setup
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def extract_date_and_phone(filename):
-    # Extract date (first 8-digit number) and phone (first 11-digit number) from filename
     date_match = re.search(r"(\d{8})", filename)
     phone_match = re.search(r"(\d{11})", filename)
     date = date_match.group(1) if date_match else None
     phone = phone_match.group(1) if phone_match else None
-
     if date:
         try:
             date = datetime.strptime(date, "%Y%m%d").strftime("%Y-%m-%d")
         except ValueError:
             pass
-
     return date, phone
 
-
 def transcribe_audio(file_path):
-    print(f"Sending file to ElevenLabs STT: {file_path}")
-    try:
-        with open(file_path, 'rb') as f:
-            files = {
-                'file': (os.path.basename(file_path), f, 'audio/mpeg')
-            }
-            data = {
-                'model_id': ELEVENLABS_MODEL_ID
-            }
-            response = requests.post(
-                ELEVENLABS_STT_URL,
-                headers={"xi-api-key": ELEVENLABS_API_KEY},
-                files=files,
-                data=data
-            )
-            response.raise_for_status()
-            return response.json().get("text", "")
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error: {http_err}")
-        print(f"Response: {response.text}")
-        raise
-
+    with open(file_path, 'rb') as f:
+        files = {'file': (os.path.basename(file_path), f, 'audio/mpeg')}
+        data = {'model_id': ELEVENLABS_MODEL_ID}
+        response = requests.post(
+            ELEVENLABS_STT_URL,
+            headers={"xi-api-key": ELEVENLABS_API_KEY},
+            files=files,
+            data=data
+        )
+        response.raise_for_status()
+        return response.json().get("text", "")
 
 def extract_facts(transcript):
-    input_variables = {
-        "transcript": transcript
-    }
-    response = promptlayer_client.run(
-        prompt_name="IVR_fact_extraction",
-        input_variables=input_variables
-    )
+    input_variables = {"transcript": transcript}
+    response = promptlayer_client.run(prompt_name="IVR_fact_extraction", input_variables=input_variables)
     return json.loads(response["raw_response"].choices[0].message.content)
 
+def update_customer_info(customer_id, extracted, current_data, test_mode):
+    updates = {}
+    for field in ["name", "company_name", "address", "email"]:
+        if not current_data.get(field) and extracted.get(field):
+            updates[field] = extracted[field]
+    if updates:
+        customer_table = get_table("customers", test_mode)
+        supabase.table(customer_table).update(updates).eq("customer_id", customer_id).execute()
 
-def process_directory(directory):
-    mp3_files = glob(os.path.join(directory, "*.mp3"))
-    if not mp3_files:
-        print(f"No .mp3 files found in {directory}")
+def insert_transcript(customer_id, date, transcript, sentiment, test_mode, recording_filename=""):
+    transcript_table = get_table("ivr_transcripts", test_mode)
+    if not transcript or not date or not sentiment:
+        print("❌ Missing required fields: content, date_recording, sentiment")
         return
 
-    for file_path in mp3_files:
-        filename = os.path.basename(file_path)
-        date, phone = extract_date_and_phone(filename)
+    payload = {
+        "content": transcript,
+        "date_recording": date,
+        "sentiment": sentiment
+    }
+
+    if customer_id:
+        payload["customer_id"] = customer_id
+    if recording_filename:
+        payload["recording"] = recording_filename
+
+    print(f"Inserting into {transcript_table} with payload:\n{json.dumps(payload, indent=2)}")
+
+    try:
+        supabase.table(transcript_table).insert(payload).execute()
+        print("✅ Insert successful.")
+    except Exception as e:
+        print(f"❌ Supabase insert failed: {e}")
+        raise
+
+def insert_memory(customer_id, extracted, test_mode):
+    memory_table = get_table("memory", test_mode)
+    for key in ["issue", "preference", "other"]:
+        if key in extracted:
+            try:
+                supabase.table(memory_table).insert({
+                    "customer_id": customer_id,
+                    "content": extracted[key],
+                    "source": key  # This must match the ENUM values exactly
+                }).execute()
+            except Exception as e:
+                print(f"❌ Error inserting memory (source={key}): {e}")
+
+def process_audio_files(uploaded_files, test_mode=True, logger=print):
+    for uploaded_file in uploaded_files:
+        file_name = uploaded_file.name
+        date, raw_phone = extract_date_and_phone(file_name)
+        phone = standardize_phone_number(raw_phone)
+
         if not (date and phone):
-            print(f"Skipping {filename}: couldn't extract date or phone")
+            logger(f"Skipping {file_name}: couldn't extract valid date or phone")
             continue
 
-        print(f"Processing {filename} (Date: {date}, Phone: {phone})")
+        logger(f"Processing {file_name} (Date: {date}, Phone: {phone})")
 
         try:
-            transcript = transcribe_audio(file_path)
-            extracted_data = extract_facts(transcript)
-            output = {
-                "date": date,
-                "phone": phone,
-                "transcript": transcript,
-                "extracted_content": extracted_data
-            }
-            print(json.dumps(output, indent=2, ensure_ascii=False))
+            with open(f"temp_{file_name}", "wb") as temp_file:
+                temp_file.write(uploaded_file.read())
+                temp_path = temp_file.name
+
+            transcript = transcribe_audio(temp_path)
+            extracted = extract_facts(transcript)
+            sentiment = extracted.get("sentiment", "")
+
+            extracted_phone = standardize_phone_number(extracted.get("phone_number", ""))
+            if not extracted_phone or len(extracted_phone) < 10:
+                logger(f"⚠️ Invalid extracted phone, using fallback from filename: {phone}")
+                extracted_phone = phone
+
+            phone_list = [extracted_phone] if extracted_phone else []
+            customer_map = get_existing_customers(phone_list, test_mode)
+            customer = customer_map.get(extracted_phone)
+
+            if customer:
+                customer_id = customer["customer_id"]
+            else:
+                customer_table = get_table("customers", test_mode)
+                insert_res = supabase.table(customer_table).insert({"phone_number": extracted_phone}).execute()
+                customer_id = insert_res.data[0]["customer_id"]
+                customer = {"phone_number": extracted_phone}
+
+            update_customer_info(customer_id, extracted, customer, test_mode)
+            insert_transcript(customer_id, date, transcript, sentiment, test_mode, file_name)
+            insert_memory(customer_id, extracted, test_mode)
+
+            logger(f"✅ Processed {file_name}")
         except Exception as e:
-            print(f"Error processing {filename}: {e}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Process Pendulum IVR audio recordings.")
-    parser.add_argument("directory", help="Path to directory containing .mp3 files")
-    args = parser.parse_args()
-    process_directory(args.directory)
-
-
-if __name__ == "__main__":
-    main()
+            error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+            logger(f"❌ Error processing {file_name}: {error_msg}")

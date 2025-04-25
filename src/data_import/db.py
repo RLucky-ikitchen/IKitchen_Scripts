@@ -21,14 +21,16 @@ PROD_TABLES = {
     "customers": "customers",
     "orders": "orders",
     "feedback": "feedback",
-    "memory": "memory"
+    "memory": "memory",
+    'ivr_transcripts': 'ivr_transcripts',
 }
 
 TEST_TABLES = {
     "customers": "customers_testing",
     "orders": "orders_testing",
     "feedback": "feedback_testing",
-    "memory": "memory_testing"
+    "memory": "memory_testing",
+    'ivr_transcripts': 'ivr_transcripts_testing',
 }
 
 
