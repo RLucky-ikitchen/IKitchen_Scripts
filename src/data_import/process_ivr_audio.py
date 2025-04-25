@@ -63,46 +63,28 @@ def update_customer_info(customer_id, extracted, current_data, test_mode):
         customer_table = get_table("customers", test_mode)
         supabase.table(customer_table).update(updates).eq("customer_id", customer_id).execute()
 
-def insert_transcript(customer_id, date, transcript, sentiment, test_mode, recording_filename=""):
+def insert_transcripts_batch(transcripts_payload, test_mode):
     transcript_table = get_table("ivr_transcripts", test_mode)
-    if not transcript or not date or not sentiment:
-        print("❌ Missing required fields: content, date_recording, sentiment")
-        return
+    if transcripts_payload:
+        try:
+            supabase.table(transcript_table).insert(transcripts_payload).execute()
+            print("✅ Batch insert of transcripts successful.")
+        except Exception as e:
+            print(f"❌ Batch insert failed: {e}")
+            raise
 
-    payload = {
-        "content": transcript,
-        "date_recording": date,
-        "sentiment": sentiment
-    }
-
-    if customer_id:
-        payload["customer_id"] = customer_id
-    if recording_filename:
-        payload["recording"] = recording_filename
-
-    print(f"Inserting into {transcript_table} with payload:\n{json.dumps(payload, indent=2)}")
-
-    try:
-        supabase.table(transcript_table).insert(payload).execute()
-        print("✅ Insert successful.")
-    except Exception as e:
-        print(f"❌ Supabase insert failed: {e}")
-        raise
-
-def insert_memory(customer_id, extracted, test_mode):
+def insert_memories_batch(memory_payloads, test_mode):
     memory_table = get_table("memory", test_mode)
-    for key in ["issue", "preference", "other"]:
-        if key in extracted:
-            try:
-                supabase.table(memory_table).insert({
-                    "customer_id": customer_id,
-                    "content": extracted[key],
-                    "source": key  # This must match the ENUM values exactly
-                }).execute()
-            except Exception as e:
-                print(f"❌ Error inserting memory (source={key}): {e}")
+    if memory_payloads:
+        try:
+            supabase.table(memory_table).insert(memory_payloads).execute()
+        except Exception as e:
+            print(f"❌ Error inserting memory batch: {e}")
 
 def process_audio_files(uploaded_files, test_mode=True, logger=print):
+    all_phones = []
+    file_info = []
+
     for uploaded_file in uploaded_files:
         file_name = uploaded_file.name
         date, raw_phone = extract_date_and_phone(file_name)
@@ -110,6 +92,21 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
 
         if not (date and phone):
             logger(f"Skipping {file_name}: couldn't extract valid date or phone")
+            continue
+
+        all_phones.append(phone)
+        file_info.append((uploaded_file, file_name, date, phone))
+
+    customer_map = get_existing_customers(all_phones, test_mode)
+    existing_transcripts = supabase.table("ivr_transcripts").select("recording").execute().data
+    processed_recordings = set(row["recording"] for row in existing_transcripts if row["recording"])
+
+    transcripts_payload = []
+    memory_payloads = []
+
+    for uploaded_file, file_name, date, phone in file_info:
+        if file_name in processed_recordings:
+            logger(f"⏩ Skipping already processed file: {file_name}")
             continue
 
         logger(f"Processing {file_name} (Date: {date}, Phone: {phone})")
@@ -123,13 +120,7 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
             extracted = extract_facts(transcript)
             sentiment = extracted.get("sentiment", "")
 
-            extracted_phone = standardize_phone_number(extracted.get("phone_number", ""))
-            if not extracted_phone or len(extracted_phone) < 10:
-                logger(f"⚠️ Invalid extracted phone, using fallback from filename: {phone}")
-                extracted_phone = phone
-
-            phone_list = [extracted_phone] if extracted_phone else []
-            customer_map = get_existing_customers(phone_list, test_mode)
+            extracted_phone = phone  # always use filename phone
             customer = customer_map.get(extracted_phone)
 
             if customer:
@@ -141,10 +132,34 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                 customer = {"phone_number": extracted_phone}
 
             update_customer_info(customer_id, extracted, customer, test_mode)
-            insert_transcript(customer_id, date, transcript, sentiment, test_mode, file_name)
-            insert_memory(customer_id, extracted, test_mode)
+
+            transcripts_payload.append({
+                "customer_id": customer_id,
+                "content": transcript,
+                "date_recording": date,
+                "sentiment": sentiment,
+                "recording": file_name
+            })
+
+            memory_content = []
+            for key, value in extracted.items():
+                if key in ["name", "company_name", "address", "email", "phone_number", "sentiment"]:
+                    continue
+                if value:
+                    memory_content.append(f"{key}: {value}")
+
+            if memory_content:
+                memory_payloads.append({
+                    "customer_id": customer_id,
+                    "content": ", ".join(memory_content),
+                    "source": "transcript"
+                })
 
             logger(f"✅ Processed {file_name}")
+
         except Exception as e:
             error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
             logger(f"❌ Error processing {file_name}: {error_msg}")
+
+    insert_transcripts_batch(transcripts_payload, test_mode)
+    insert_memories_batch(memory_payloads, test_mode)
