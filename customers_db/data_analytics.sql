@@ -88,6 +88,15 @@ WHERE visit_counts IS NOT NULL;
 SELECT COUNT(*) AS total_orders
 FROM orders;
 
+-- Percentage per order type
+SELECT 
+  order_type,
+  COUNT(*) AS order_count,
+  ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM orders),1) AS percentage
+FROM orders
+GROUP BY order_type
+ORDER BY percentage ASC;
+
 -- 8. Avg amount spent
 SELECT AVG(total_amount) AS avg_amount_spent
 FROM orders;
