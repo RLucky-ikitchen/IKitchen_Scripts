@@ -25,6 +25,18 @@ JOIN (
 ) actual ON c.customer_id = actual.customer_id
 WHERE c.is_returning_customer IS DISTINCT FROM actual.should_be_returning;
 
+-- If needed, fix mismatched returning_customer flags
+UPDATE customers
+SET is_returning_customer = actual.should_be_returning
+FROM (
+  SELECT customer_id,
+         COUNT(DISTINCT DATE(order_date)) >= 2 AS should_be_returning
+  FROM orders
+  GROUP BY customer_id
+) actual
+WHERE customers.customer_id = actual.customer_id
+  AND customers.is_returning_customer IS DISTINCT FROM actual.should_be_returning;
+
 
 -- If all good, run:
 SELECT COUNT(*) AS returning_customers
