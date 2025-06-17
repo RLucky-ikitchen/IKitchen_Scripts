@@ -141,3 +141,29 @@ SET is_top_customer = (
 -- Add unique constraint receipt id
 ALTER TABLE orders
 ADD CONSTRAINT unique_receipt_id UNIQUE (receipt_id);
+
+-----------------------------------------------------------------------------------------------------------------
+-- Add created_at and modified_at columns to customers table
+ALTER TABLE customers
+ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+
+-- Backfill created_at and modified_at columns
+UPDATE customers
+SET created_at = now(),
+    modified_at = now()
+WHERE created_at IS NULL OR modified_at IS NULL;
+
+-- Create trigger to automatically update modified_at column on updates
+CREATE OR REPLACE FUNCTION update_modified_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.modified_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_modified_at
+BEFORE UPDATE ON customers
+FOR EACH ROW
+EXECUTE FUNCTION update_modified_at();
