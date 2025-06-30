@@ -118,46 +118,42 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     # First, fetch existing receipt IDs from the database
     receipt_ids = final_data["Receipt no"].unique().tolist()
     existing_receipt_ids = get_existing_receipts_ids(receipt_ids, use_test_tables)
-    orders: List[Order] = []
+    orders = []
 
-    for i, row in final_data.iterrows():
-        try:
-            receipt_id = row["Receipt no"]
-            if receipt_id in existing_receipt_ids:
-                if logger:
-                    logger(f"Skipping order with receipt ID: {receipt_id} - already in the database")
-                continue
+    for _, row in final_data.iterrows():
+        receipt_no = row["Receipt no"]
 
-            grouped = row.get("grouped_data")
-            if not grouped or not isinstance(grouped, dict):
-                if logger:
-                    logger(f"Missing or invalid 'grouped_data' for receipt {receipt_id}")
-                continue
+        # Format order date
+        order_date = row["Sale date"]
+        if isinstance(order_date, pd.Timestamp):
+            formatted_date = order_date.strftime("%d_%m_%Y")
+            order_date_str = order_date.isoformat()
+        else:
+            parsed_date = pd.to_datetime(order_date)
+            formatted_date = parsed_date.strftime("%d_%m_%Y")
+            order_date_str = parsed_date.isoformat()
 
-            items = grouped.get("order_items", [])
-            if not items or not all(isinstance(item, OrderItem) for item in items):
-                if logger:
-                    logger(f"Invalid 'order_items' in grouped_data for receipt {receipt_id}: {items}")
-                continue
+        formatted_receipt_id = f"{receipt_no}_{formatted_date}"
 
-            total_amount = sum(item.amount for item in items if item.amount is not None and not pd.isna(item.amount))
-
-            order = Order(
-                order_id=str(uuid.uuid4()),
-                customer_id=customer_id_map.get(standardize_phone_number(row.get("Customer mobile"))),
-                order_date=row["Sale date"].isoformat() if isinstance(row["Sale date"], pd.Timestamp) else str(row["Sale date"]),
-                order_items=items,
-                order_items_text=grouped.get("order_items_text", ""),
-                total_amount=total_amount,
-                order_type=order_type_mapping.get(row.get("Ordertype name"), "Take away"),
-                receipt_id=receipt_id
-            )
-            orders.append(order)
-
-        except Exception as e:
+        # Check if this formatted receipt ID already exists
+        if formatted_receipt_id in existing_receipt_ids:
             if logger:
-                logger(f"Error processing row {i} (receipt: {row.get('Receipt no')}): {e}")
+                logger(f"Skipping order with receipt ID: {formatted_receipt_id} - already in the database")
+            continue
 
+        customer_id = customer_id_map.get(standardize_phone_number(row["Customer mobile"]))
+
+        order = Order(
+            order_id=str(uuid.uuid4()),
+            customer_id=customer_id,
+            order_date=order_date_str,
+            order_items=row['grouped_data']["order_items"],
+            order_items_text=row['grouped_data']["order_items_text"],
+            total_amount=sum(item.amount for item in row['grouped_data']["order_items"]),
+            order_type=order_type_mapping.get(row["Ordertype name"]),
+            receipt_id=formatted_receipt_id
+        )
+        orders.append(order)
 
     batch_insert_orders(orders, use_test_tables)
 

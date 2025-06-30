@@ -167,3 +167,23 @@ CREATE TRIGGER set_modified_at
 BEFORE UPDATE ON customers
 FOR EACH ROW
 EXECUTE FUNCTION update_modified_at();
+
+-----------------------------------------------------------------------------------------------------------------
+-- Make receipt_id unique
+WITH batch AS (
+  SELECT order_id  
+  FROM orders
+  WHERE receipt_id_test IS NULL
+  LIMIT 1000
+)
+UPDATE orders o
+SET receipt_id_test = 
+    receipt_id || '_' || TO_CHAR(order_date, 'DD_MM_YYYY')
+FROM batch
+WHERE o.order_id = batch.order_id;
+
+-- Copy receipt_id_test to original receipt_id column
+UPDATE orders
+SET receipt_id = receipt_id_test
+WHERE receipt_id_test IS NOT NULL
+  AND receipt_id_test <> '';
