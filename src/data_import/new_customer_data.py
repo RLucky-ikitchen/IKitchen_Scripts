@@ -33,7 +33,7 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
                 "email": row['Email'] if is_valid_email(row['Email']) else None,
                 "address": row['Address'] if not pd.isna(row['Address']) else None,
                 "company_name": row['Company Name'] if not pd.isna(row['Company Name']) else None,
-                "is_VIP": 'vip' in str(row['Returning/New']).lower() or row['VIP Status'] == 'Yes',
+                "is_VIP": 'vip' in str(row['Returning']).lower() or row['VIP Status'] == 'Yes',
             }
             customer = Customer(**customer_data)
 
@@ -98,25 +98,46 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
 
 def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
-    receipt_numbers_to_process = dataframe['Receipt No.'].dropna().unique().tolist()
+
+    # Generate formatted receipt_ids: "Receipt No._dd_mm_yyyy"
+    formatted_receipt_ids = []
+    for _, row in dataframe.iterrows():
+        receipt_number = row.get("Receipt No.")
+        date_str = row.get("Date")
+        order_date = pd.to_datetime(date_str, format="%b/%d/%Y", errors="coerce")
+        if pd.notna(receipt_number) and pd.notna(order_date):
+            formatted_date = order_date.strftime("%d_%m_%Y")
+            formatted_receipt_id = f"{receipt_number}_{formatted_date}"
+            formatted_receipt_ids.append(formatted_receipt_id)
+
+    # Remove duplicates before fetching
+    formatted_receipt_ids = list(set(formatted_receipt_ids))
 
     existing_customers = get_existing_customers(phone_numbers_to_process, use_test_tables)
-    existing_orders = get_existing_orders(receipt_numbers_to_process, use_test_tables)
+    existing_orders = get_existing_orders(formatted_receipt_ids, use_test_tables)
 
     for _, row in dataframe.iterrows():
         phone_number = standardize_phone_number(row.get("Contact Number"))
         receipt_number = row.get("Receipt No.")
+        order_date = pd.to_datetime(row.get("Date"))
 
-        if receipt_number and phone_number:
+        if pd.notna(phone_number) and pd.notna(receipt_number) and pd.notna(order_date):
+            formatted_date = order_date.strftime("%d_%m_%Y")
+            formatted_receipt_id = f"{receipt_number}_{formatted_date}"
+
             existing_customer = existing_customers.get(phone_number)
-            order = existing_orders.get(receipt_number)
+            order = existing_orders.get(formatted_receipt_id)
 
             if existing_customer and order:
                 if not order.get('customer_id'):
                     customer_id = existing_customer['customer_id']
-                    supabase.table(get_table("orders", use_test_tables)).update({"customer_id": customer_id}).eq("receipt_id", receipt_number).execute()
+                    supabase.table(get_table("orders", use_test_tables)) \
+                        .update({"customer_id": customer_id}) \
+                        .eq("receipt_id", formatted_receipt_id) \
+                        .execute()
                     if logger:
-                        logger(f"Mapping order {receipt_number} to customer {phone_number}")
+                        logger(f"Mapping order {formatted_receipt_id} to customer {phone_number}")
+
 
 
 def normalize_feedback_source(source: str) -> str | None:
