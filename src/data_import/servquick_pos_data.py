@@ -116,10 +116,30 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     # Process all Orders
 
     # First, fetch existing receipt IDs from the database
-    receipt_ids = final_data["Receipt no"].unique().tolist()
+    # Format all receipt IDs first using your existing date logic
+    def format_receipt_id(row):
+        receipt_no = row["Receipt no"]
+        order_date = row["Sale date"]
+
+        if isinstance(order_date, pd.Timestamp):
+            formatted_date = order_date.strftime("%d_%m_%Y")
+        else:
+            parsed_date = pd.to_datetime(order_date, errors="coerce")
+            if pd.isna(parsed_date):
+                return None
+            formatted_date = parsed_date.strftime("%d_%m_%Y")
+
+        return f"{receipt_no}_{formatted_date}"
+
+    # Apply the formatting to all rows
+    receipt_ids = final_data.apply(format_receipt_id, axis=1).dropna().unique().tolist()
+
+    # Now fetch existing formatted receipt IDs from the database
     existing_receipt_ids = get_existing_receipts_ids(receipt_ids, use_test_tables)
+
     orders = []
 
+    # Proceed with order processing using the same logic
     for _, row in final_data.iterrows():
         receipt_no = row["Receipt no"]
 
@@ -129,13 +149,17 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
             formatted_date = order_date.strftime("%d_%m_%Y")
             order_date_str = order_date.isoformat()
         else:
-            parsed_date = pd.to_datetime(order_date)
+            parsed_date = pd.to_datetime(order_date, errors="coerce")
+            if pd.isna(parsed_date):
+                if logger:
+                    logger(f"Skipping order with missing or invalid date for receipt {receipt_no}")
+                continue
             formatted_date = parsed_date.strftime("%d_%m_%Y")
             order_date_str = parsed_date.isoformat()
 
         formatted_receipt_id = f"{receipt_no}_{formatted_date}"
 
-        # Check if this formatted receipt ID already exists
+        # Skip if already in database
         if formatted_receipt_id in existing_receipt_ids:
             if logger:
                 logger(f"Skipping order with receipt ID: {formatted_receipt_id} - already in the database")
