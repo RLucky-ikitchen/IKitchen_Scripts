@@ -4,7 +4,7 @@ import pandas as pd
 from src.models import Customer, Feedback
 
 
-from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders
+from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders, refresh_views_analytics
 from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns
 
 
@@ -266,6 +266,8 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
 
     logger and logger("✅ Step 4: Processing memory entries")
     process_memory_entries(dataframe, use_test_tables, logger)
+
+    refresh_views_analytics()
 
     logger and logger("🎉 All steps completed successfully")
 
