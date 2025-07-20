@@ -96,8 +96,16 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
         supabase.table(get_table("customers", use_test_tables)).insert(list(customers_to_insert.values())).execute()
 
 
-def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
+def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None, file_path=None):
     phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
+
+    # Determine location_name from file_path
+    location_name = None
+    if file_path:
+        if "Lahore" in file_path:
+            location_name = "Lahore"
+        elif "Santorini" in file_path:
+            location_name = "Santorini"
 
     # Generate formatted receipt_ids: "Receipt No._dd_mm_yyyy"
     formatted_receipt_ids = []
@@ -131,12 +139,15 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
             if existing_customer and order:
                 if not order.get('customer_id'):
                     customer_id = existing_customer['customer_id']
+                    update_data = {"customer_id": customer_id}
+                    if location_name:
+                        update_data["location_name"] = location_name
                     supabase.table(get_table("orders", use_test_tables)) \
-                        .update({"customer_id": customer_id}) \
+                        .update(update_data) \
                         .eq("receipt_id", formatted_receipt_id) \
                         .execute()
                     if logger:
-                        logger(f"Mapping order {formatted_receipt_id} to customer {phone_number}")
+                        logger(f"Mapping order {formatted_receipt_id} to customer {phone_number} with location {location_name}")
 
 
 
@@ -258,7 +269,7 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     process_customer_details(dataframe, use_test_tables, logger)
 
     logger and logger("✅ Step 2: Processing order mappings")
-    process_order_mappings(dataframe, use_test_tables, logger)
+    process_order_mappings(dataframe, use_test_tables, logger, file_path=file_path)
 
     validate_spreadsheet_columns(dataframe, "feedback")
     logger and logger("✅ Step 3: Processing feedback")

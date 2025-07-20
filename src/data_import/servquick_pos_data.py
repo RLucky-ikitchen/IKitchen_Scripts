@@ -167,6 +167,9 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
 
         customer_id = customer_id_map.get(standardize_phone_number(row["Customer mobile"]))
 
+        # When processing orders, add logic like for location name
+        location_name = 'Santorini' if row.get('Register name') == 'CO-50010' else 'Lahore'
+
         order = Order(
             order_id=str(uuid.uuid4()),
             customer_id=customer_id,
@@ -175,7 +178,8 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
             order_items_text=row['grouped_data']["order_items_text"],
             total_amount=sum(item.amount for item in row['grouped_data']["order_items"]),
             order_type=order_type_mapping.get(row["Ordertype name"]),
-            receipt_id=formatted_receipt_id
+            receipt_id=formatted_receipt_id,
+            location_name=location_name
         )
         orders.append(order)
 
