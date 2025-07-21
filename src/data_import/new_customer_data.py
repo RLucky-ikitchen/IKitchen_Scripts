@@ -106,6 +106,14 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
             location_name = "Lahore"
         elif "Santorini" in file_path:
             location_name = "Santorini"
+    
+    if location_name is None:
+        error_msg = f"Error: Could not determine location from file_path: {file_path}. Expected 'Lahore' or 'Santorini' in the file name."
+        if logger:
+            logger(error_msg)
+        else:
+            raise ValueError(error_msg)
+        return
 
     # Generate formatted receipt_ids: "Receipt No._dd_mm_yyyy"
     formatted_receipt_ids = []
@@ -140,8 +148,7 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
                 if not order.get('customer_id'):
                     customer_id = existing_customer['customer_id']
                     update_data = {"customer_id": customer_id}
-                    if location_name:
-                        update_data["location_name"] = location_name
+                    update_data["location_name"] = location_name
                     supabase.table(get_table("orders", use_test_tables)) \
                         .update(update_data) \
                         .eq("receipt_id", formatted_receipt_id) \
