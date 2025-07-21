@@ -4,7 +4,7 @@ import pandas as pd
 from src.models import Customer, Feedback
 
 
-from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders
+from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders, refresh_views_analytics
 from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns
 
 
@@ -96,24 +96,8 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
         supabase.table(get_table("customers", use_test_tables)).insert(list(customers_to_insert.values())).execute()
 
 
-def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None, file_path=None):
+def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
-
-    # Determine location_name from file_path
-    location_name = None
-    if file_path:
-        if "Lahore" in file_path:
-            location_name = "Lahore"
-        elif "Santorini" in file_path:
-            location_name = "Santorini"
-    
-    if location_name is None:
-        error_msg = f"Error: Could not determine location from file_path: {file_path}. Expected 'Lahore' or 'Santorini' in the file name."
-        if logger:
-            logger(error_msg)
-        else:
-            raise ValueError(error_msg)
-        return
 
     # Generate formatted receipt_ids: "Receipt No._dd_mm_yyyy"
     formatted_receipt_ids = []
@@ -147,14 +131,12 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
             if existing_customer and order:
                 if not order.get('customer_id'):
                     customer_id = existing_customer['customer_id']
-                    update_data = {"customer_id": customer_id}
-                    update_data["location_name"] = location_name
                     supabase.table(get_table("orders", use_test_tables)) \
-                        .update(update_data) \
+                        .update({"customer_id": customer_id}) \
                         .eq("receipt_id", formatted_receipt_id) \
                         .execute()
                     if logger:
-                        logger(f"Mapping order {formatted_receipt_id} to customer {phone_number} with location {location_name}")
+                        logger(f"Mapping order {formatted_receipt_id} to customer {phone_number}")
 
 
 
@@ -276,7 +258,7 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     process_customer_details(dataframe, use_test_tables, logger)
 
     logger and logger("✅ Step 2: Processing order mappings")
-    process_order_mappings(dataframe, use_test_tables, logger, file_path=file_path)
+    process_order_mappings(dataframe, use_test_tables, logger)
 
     validate_spreadsheet_columns(dataframe, "feedback")
     logger and logger("✅ Step 3: Processing feedback")
@@ -285,6 +267,6 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     logger and logger("✅ Step 4: Processing memory entries")
     process_memory_entries(dataframe, use_test_tables, logger)
 
+    refresh_views_analytics()
+
     logger and logger("🎉 All steps completed successfully")
-
-
