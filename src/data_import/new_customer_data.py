@@ -270,5 +270,3 @@ def process_customer_data(file_path, disable_test_customer_data=False, logger=No
     refresh_views_analytics()
 
     logger and logger("🎉 All steps completed successfully")
-
-
