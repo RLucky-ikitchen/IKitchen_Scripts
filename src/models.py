@@ -27,6 +27,7 @@ class Order(BaseModel):
     total_amount: float
     order_type: str
     receipt_id: str
+    location: str
 
 
 class Feedback(BaseModel):

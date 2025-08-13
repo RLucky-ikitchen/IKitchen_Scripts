@@ -179,7 +179,7 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
             total_amount=sum(item.amount for item in row['grouped_data']["order_items"]),
             order_type=order_type_mapping.get(row["Ordertype name"]),
             receipt_id=formatted_receipt_id,
-            location_name=location_name
+            location=location_name
         )
         orders.append(order)
 
