@@ -53,15 +53,37 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
     data = data.dropna(subset=["Receipt no"])
 
     # Data Cleaning
+    def clean_money(series):
+        return pd.to_numeric(series.astype(str).str.replace(",", "", regex=False), errors="coerce")
+
     data["Item quantity"] = pd.to_numeric(data["Item quantity"], errors="coerce")
-    data["Item amount"] = data["Item amount"].astype(str).str.replace(",", "")
-    data["Item amount"] = pd.to_numeric(data["Item amount"], errors="coerce")
+    data["Item amount"] = clean_money(data["Item amount"])
 
     # Handle any invalid data
-    if data["Item amount"].isna().any():
-        if logger:
-            logger("Invalid 'Item amount' detected:")
-            logger(data[data["Item amount"].isna()])
+    if data["Item amount"].isna().any() and logger:
+        logger("Invalid 'Item amount' detected:")
+        logger(data[data["Item amount"].isna()])
+
+    # Taxes
+    tax_cols = []
+    if "Tax amount" in data.columns:
+        tax_cols.append("Tax amount")
+    else:
+        for col in ["SGST amount", "CGST amount", "IGST amount", "CESS amount", "GST amount"]:
+            if col in data.columns:
+                tax_cols.append(col)
+    if tax_cols:
+        for col in tax_cols:
+            data[col] = clean_money(data[col])
+        data["__Tax_line_total__"] = data[tax_cols].sum(axis=1, min_count=1).fillna(0.0)
+    else:
+        data["__Tax_line_total__"] = 0.0
+
+    # Service charge
+    if "Service charge amount" in data.columns:
+        data["__Service_charge_line_total__"] = clean_money(data["Service charge amount"])
+    else:
+        data["__Service_charge_line_total__"] = 0.0
 
     # Group Items by Receipt Number
     grouped = data.groupby("Receipt no").apply(lambda group: {
@@ -75,7 +97,22 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
         )
     }).reset_index(name="grouped_data")
 
-    final_data = pd.merge(data.drop_duplicates("Receipt no"), grouped, on="Receipt no", how="left")
+    # Compute receipt-level totals including taxes and service charge
+    receipt_totals = (
+        data.groupby("Receipt no", as_index=False)
+            .agg(items_total=("Item amount", "sum"),
+                 tax_total=("__Tax_line_total__", "sum"),
+                 service_charge_total=("__Service_charge_line_total__", "sum"))
+    )
+    receipt_totals["total_with_tax_service"] = (
+        receipt_totals["items_total"] +
+        receipt_totals["tax_total"] +
+        receipt_totals["service_charge_total"]
+    )
+
+    final_data = data.drop_duplicates("Receipt no")
+    final_data = pd.merge(final_data, grouped, on="Receipt no", how="left")
+    final_data = pd.merge(final_data, receipt_totals, on="Receipt no", how="left")
     
     # Logging time frame of the receipts
     if not final_data["Sale date"].isna().all():
@@ -170,13 +207,17 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
         # When processing orders, add logic like for location name
         location_name = 'Santorini' if row.get('Register name') == 'CO-50010' else 'Lahore'
 
+        total_with_tax_service = row.get("total_with_tax_service")
+        if pd.isna(total_with_tax_service):
+            total_with_tax_service = sum(item.amount for item in row['grouped_data']["order_items"])  # Fallback
+
         order = Order(
             order_id=str(uuid.uuid4()),
             customer_id=customer_id,
             order_date=order_date_str,
             order_items=row['grouped_data']["order_items"],
             order_items_text=row['grouped_data']["order_items_text"],
-            total_amount=sum(item.amount for item in row['grouped_data']["order_items"]),
+            total_amount=float(total_with_tax_service) if total_with_tax_service is not None else None,
             order_type=order_type_mapping.get(row["Ordertype name"]),
             receipt_id=formatted_receipt_id,
             location=location_name
