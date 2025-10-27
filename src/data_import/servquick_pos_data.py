@@ -5,7 +5,7 @@ from typing import List, Dict
 from src.models import Customer, Order, OrderItem
 
 from src.data_import.db import supabase, get_table, BATCH_SIZE, batch_insert_orders, get_existing_receipts_ids, get_existing_customers
-from src.utils import standardize_phone_number, get_spreadsheet_data, validate_spreadsheet_columns
+from src.utils import standardize_phone_number, get_spreadsheet_data, validate_spreadsheet_columns, format_receipt_id
 
 
 order_type_mapping = {
@@ -152,24 +152,11 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
 
     # Process all Orders
 
-    # First, fetch existing receipt IDs from the database
-    # Format all receipt IDs first using your existing date logic
-    def format_receipt_id(row):
-        receipt_no = row["Receipt no"]
-        order_date = row["Sale date"]
+    # First, fetch existing receipt IDs from the database using shared util
+    def _fmt_row_receipt(row):
+        return format_receipt_id(str(row["Receipt no"]), row["Sale date"]) if not pd.isna(row["Receipt no"]) else None
 
-        if isinstance(order_date, pd.Timestamp):
-            formatted_date = order_date.strftime("%d_%m_%Y")
-        else:
-            parsed_date = pd.to_datetime(order_date, errors="coerce")
-            if pd.isna(parsed_date):
-                return None
-            formatted_date = parsed_date.strftime("%d_%m_%Y")
-
-        return f"{receipt_no}_{formatted_date}"
-
-    # Apply the formatting to all rows
-    receipt_ids = final_data.apply(format_receipt_id, axis=1).dropna().unique().tolist()
+    receipt_ids = final_data.apply(_fmt_row_receipt, axis=1).dropna().unique().tolist()
 
     # Now fetch existing formatted receipt IDs from the database
     existing_receipt_ids = get_existing_receipts_ids(receipt_ids, use_test_tables)
@@ -182,19 +169,14 @@ def process_pos_data(file_path, disable_test_pos_data=False, logger=None):
 
         # Format order date
         order_date = row["Sale date"]
-        if isinstance(order_date, pd.Timestamp):
-            formatted_date = order_date.strftime("%d_%m_%Y")
-            order_date_str = order_date.isoformat()
-        else:
-            parsed_date = pd.to_datetime(order_date, errors="coerce")
-            if pd.isna(parsed_date):
-                if logger:
-                    logger(f"Skipping order with missing or invalid date for receipt {receipt_no}")
-                continue
-            formatted_date = parsed_date.strftime("%d_%m_%Y")
-            order_date_str = parsed_date.isoformat()
+        parsed_date = pd.to_datetime(order_date, errors="coerce")
+        if pd.isna(parsed_date):
+            if logger:
+                logger(f"Skipping order with missing or invalid date for receipt {receipt_no}")
+            continue
+        order_date_str = parsed_date.isoformat()
 
-        formatted_receipt_id = f"{receipt_no}_{formatted_date}"
+        formatted_receipt_id = format_receipt_id(str(receipt_no), parsed_date)
 
         # Skip if already in database
         if formatted_receipt_id in existing_receipt_ids:

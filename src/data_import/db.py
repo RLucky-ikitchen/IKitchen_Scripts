@@ -23,6 +23,7 @@ PROD_TABLES = {
     "feedback": "feedback",
     "memory": "memory",
     'ivr_transcripts': 'ivr_transcripts',
+    "transactions": "transactions",
 }
 
 TEST_TABLES = {
@@ -31,6 +32,7 @@ TEST_TABLES = {
     "feedback": "feedback_testing",
     "memory": "memory_testing",
     'ivr_transcripts': 'ivr_transcripts_testing',
+    "transactions": "transactions_testing",
 }
 
 

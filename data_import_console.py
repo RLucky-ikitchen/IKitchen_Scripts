@@ -4,6 +4,7 @@ from src.data_import.new_customer_data import process_customer_data
 from src.data_import.openai_business_card_parsing import process_all_business_cards
 from src.data_import.process_ivr_audio import process_audio_files
 from src.data_import.db import reset_test_data
+from src.data_import.verify_loyalty_transactions import verify_loyalty_transactions
 import os
 from io import StringIO
 
@@ -110,6 +111,24 @@ with st.expander("Import Data"):
             st.warning("Please upload a file before clicking the 'Process File' button.")
 
 
+st.header("Verify Loyalty Program Transactions")
+with st.expander("Run Verification"):
+    if st.button("Verify Loyalty Program Transactions", key='loyalty verification button'):
+        log_buffer = StringIO()
+        log_placeholder = st.empty()
+
+        def log_function(message):
+            log_buffer.write(message + "\n")
+            log_placeholder.text(log_buffer.getvalue())
+
+        with st.spinner("Verifying transactions against orders..."):
+            results = verify_loyalty_transactions(logger=log_function)
+
+        st.success(
+            f"Verification completed. Matched: {results.get('matched', 0)}, Problematic: {results.get('problematic', 0)}"
+        )
+
+
 st.header("Business Card Import")
 with st.expander("Import Data"):
     st.markdown("""
@@ -193,3 +212,6 @@ if st.button("Reset", key='test data reset'):
     with st.spinner("Deleting all test data from Supabase ..."):
         reset_test_data()
     st.success("Done !")
+
+
+ 

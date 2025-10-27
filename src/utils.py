@@ -85,3 +85,16 @@ def validate_spreadsheet_columns(data: pd.DataFrame, data_source: str):
     missing_columns = [col for col in expected_columns if col not in data.columns]
     if missing_columns:
         raise ValueError(f"The spreadsheet is missing the following required columns: {', '.join(missing_columns)}")
+
+
+def format_receipt_id(pos_receipt_id: str, date_like) -> str:
+    """
+    Build receipt_id as "<pos_receipt_id>_dd_mm_YYYY" from a date-like input.
+
+    date_like can be a pandas/py datetime, string timestamp, or date; invalid dates
+    return "<pos_receipt_id>_INVALID_DATE".
+    """
+    dt = pd.to_datetime(date_like, errors="coerce")
+    if pd.isna(dt):
+        return f"{pos_receipt_id}_INVALID_DATE"
+    return f"{pos_receipt_id}_{dt.strftime('%d_%m_%Y')}"

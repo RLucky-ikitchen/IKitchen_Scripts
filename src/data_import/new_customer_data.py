@@ -5,7 +5,7 @@ from src.models import Customer, Feedback
 
 
 from src.data_import.db import supabase, get_table, get_existing_customers, get_existing_feedback, get_existing_orders
-from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns
+from src.utils import standardize_phone_number, convert_rating, is_valid_email, get_spreadsheet_data, validate_spreadsheet_columns, format_receipt_id
 
 
 def get_phone_numbers_to_process(dataframe):
@@ -99,16 +99,13 @@ def process_customer_details(dataframe: pd.DataFrame, use_test_tables: bool = Tr
 def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True, logger=None):
     phone_numbers_to_process = get_phone_numbers_to_process(dataframe)
 
-    # Generate formatted receipt_ids: "Receipt No._dd_mm_yyyy"
+    # Generate formatted receipt_ids using shared util
     formatted_receipt_ids = []
     for _, row in dataframe.iterrows():
         receipt_number = row.get("Receipt No.")
         date_str = row.get("Date")
-        order_date = pd.to_datetime(date_str, format="%b/%d/%Y", errors="coerce")
-        if pd.notna(receipt_number) and pd.notna(order_date):
-            formatted_date = order_date.strftime("%d_%m_%Y")
-            formatted_receipt_id = f"{receipt_number}_{formatted_date}"
-            formatted_receipt_ids.append(formatted_receipt_id)
+        if pd.notna(receipt_number) and pd.notna(date_str):
+            formatted_receipt_ids.append(format_receipt_id(str(receipt_number), date_str))
 
     # Remove duplicates before fetching
     formatted_receipt_ids = list(set(formatted_receipt_ids))
@@ -119,11 +116,10 @@ def process_order_mappings(dataframe: pd.DataFrame, use_test_tables: bool = True
     for _, row in dataframe.iterrows():
         phone_number = standardize_phone_number(row.get("Contact Number"))
         receipt_number = row.get("Receipt No.")
-        order_date = pd.to_datetime(row.get("Date"))
+        date_like = row.get("Date")
 
-        if pd.notna(phone_number) and pd.notna(receipt_number) and pd.notna(order_date):
-            formatted_date = order_date.strftime("%d_%m_%Y")
-            formatted_receipt_id = f"{receipt_number}_{formatted_date}"
+        if pd.notna(phone_number) and pd.notna(receipt_number) and pd.notna(date_like):
+            formatted_receipt_id = format_receipt_id(str(receipt_number), date_like)
 
             existing_customer = existing_customers.get(phone_number)
             order = existing_orders.get(formatted_receipt_id)
