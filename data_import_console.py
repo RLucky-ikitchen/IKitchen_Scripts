@@ -124,9 +124,10 @@ with st.expander("Run Verification"):
         with st.spinner("Verifying transactions against orders..."):
             results = verify_loyalty_transactions(logger=log_function)
 
-        st.success(
-            f"Verification completed. Matched: {results.get('matched', 0)}, Problematic: {results.get('problematic', 0)}"
-        )
+        ok = results.get('processed_without_issues', 0)
+        bad = results.get('problematic', 0)
+        warn = results.get('warnings_count', 0)
+        st.success(f"✅ Processed without issues: {ok}   ❌ Problematic: {bad}   ⚠️ Warnings: {warn}")
 
 
 st.header("Business Card Import")

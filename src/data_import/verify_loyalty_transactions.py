@@ -79,6 +79,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
     issues: List[str] = []
     warnings_count = 0
     warnings: List[str] = []
+    processed_without_issues = 0
 
     # orders table not directly needed beyond retrieval above
 
@@ -104,19 +105,18 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
         for tx in tx_list:
             # Update the transaction with the matched order_id
             try:
-                update_filter = supabase.table(tx_table)
-                # Prefer id if present to avoid accidental multi-row updates
+                # In supabase-py, call update(...) first, then chain eq/is_ filters, then execute()
+                query = supabase.table(tx_table).update({"order_id": order_id})
                 if tx.get("id") is not None:
-                    update_filter = update_filter.eq("id", tx["id"]).is_("order_id", None)
+                    query = query.eq("id", tx["id"]).is_("order_id", None)
                 else:
-                    update_filter = (
-                        update_filter
+                    query = (
+                        query
                         .eq("pos_receipt_id", tx.get("pos_receipt_id"))
                         .eq("created_at", tx.get("created_at"))
                         .is_("order_id", None)
                     )
-
-                update_filter.update({"order_id": order_id}).execute()
+                query.execute()
             except Exception as e:
                 problematic_count += 1
                 cust_name = _customer_name_for_tx(tx)
@@ -137,6 +137,8 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
                 issues.append(
                     f"Amount mismatch for {rid}{customer_fragment}: order_total={order_total}, bill_total={bill_total}"
                 )
+            else:
+                processed_without_issues += 1
 
             # Warn if order type is not Dine-In
             if order_type != "Dine-In":
@@ -147,9 +149,9 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
                     f"Order type for {rid}{customer_fragment} is '{order_type}', expected 'Dine-In'"
                 )
 
-    logger(f"Matched transactions: {matched_count}")
-    logger(f"Problematic transactions: {problematic_count}")
-    logger(f"Warnings: {warnings_count}")
+    logger(f"✅ Processed without issues: {processed_without_issues}")
+    logger(f"❌ Problematic transactions: {problematic_count}")
+    logger(f"⚠️ Warnings: {warnings_count}")
     if issues:
         logger("Issues:")
         for msg in issues:
@@ -159,6 +161,13 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
         for msg in warnings:
             logger(f"- {msg}")
 
-    return {"matched": matched_count, "problematic": problematic_count, "issues": issues, "warnings": warnings, "warnings_count": warnings_count}
+    return {
+        "processed_without_issues": processed_without_issues,
+        "matched": matched_count,
+        "problematic": problematic_count,
+        "issues": issues,
+        "warnings": warnings,
+        "warnings_count": warnings_count,
+    }
 
 
