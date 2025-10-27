@@ -24,6 +24,7 @@ PROD_TABLES = {
     "memory": "memory",
     'ivr_transcripts': 'ivr_transcripts',
     "transactions": "transactions",
+    "members": "members",
 }
 
 TEST_TABLES = {
@@ -33,6 +34,7 @@ TEST_TABLES = {
     "memory": "memory_testing",
     'ivr_transcripts': 'ivr_transcripts_testing',
     "transactions": "transactions_testing",
+    "members": "members_testing",
 }
 
 
