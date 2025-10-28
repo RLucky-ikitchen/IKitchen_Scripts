@@ -26,7 +26,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
 
     # Fetch transactions missing order_id
     response = supabase.table(tx_table).select(
-        "id, created_at, pos_receipt_id, order_id, bill_total, member_id"
+        "id, created_at, pos_receipt_id, order_id, bill_total, member_id, recorded_by"
     ).is_("order_id", None).execute()
 
     transactions: List[Dict] = response.data or []
@@ -74,6 +74,19 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
         name = customer_id_to_name.get(customer_id)
         return name or ""
 
+    def _format_actor_fragment(tx: Dict, parentheses: bool) -> str:
+        cust_name = _customer_name_for_tx(tx)
+        recorder = tx.get("recorded_by")
+        parts = []
+        if cust_name:
+            parts.append(f"customer={cust_name}")
+        if recorder:
+            parts.append(f"recorded_by={recorder}")
+        if not parts:
+            return ""
+        joined = ", ".join(parts)
+        return f" ({joined})" if parentheses else f", {joined}"
+
     matched_count = 0
     problematic_count = 0
     issues: List[str] = []
@@ -91,8 +104,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
                 created_at_val = tx.get("created_at")
                 dt = pd.to_datetime(created_at_val, errors="coerce")
                 display_date = dt.strftime("%Y-%m-%d") if not pd.isna(dt) else str(created_at_val)
-                cust_name = _customer_name_for_tx(tx)
-                customer_fragment = f", customer={cust_name}" if cust_name else ""
+                customer_fragment = _format_actor_fragment(tx, parentheses=False)
                 issues.append(
                     f"No matching order for transaction pos_receipt_id={tx.get('pos_receipt_id')} date={display_date}{customer_fragment} -> {rid}"
                 )
@@ -119,8 +131,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
                 query.execute()
             except Exception as e:
                 problematic_count += 1
-                cust_name = _customer_name_for_tx(tx)
-                customer_fragment = f" (customer={cust_name})" if cust_name else ""
+                customer_fragment = _format_actor_fragment(tx, parentheses=True)
                 issues.append(
                     f"Failed to update transaction for {rid}{customer_fragment}: {e}"
                 )
@@ -132,8 +143,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
             bill_total = tx.get("bill_total")
             if not _within_ten_percent(order_total, bill_total):
                 problematic_count += 1
-                cust_name = _customer_name_for_tx(tx)
-                customer_fragment = f" (customer={cust_name})" if cust_name else ""
+                customer_fragment = _format_actor_fragment(tx, parentheses=True)
                 issues.append(
                     f"Amount mismatch for {rid}{customer_fragment}: order_total={order_total}, bill_total={bill_total}"
                 )
@@ -143,8 +153,7 @@ def verify_loyalty_transactions(logger: Callable[[str], None] = print) -> Dict[s
             # Warn if order type is not Dine-In
             if order_type != "Dine-In":
                 warnings_count += 1
-                cust_name = _customer_name_for_tx(tx)
-                customer_fragment = f" (customer={cust_name})" if cust_name else ""
+                customer_fragment = _format_actor_fragment(tx, parentheses=True)
                 warnings.append(
                     f"Order type for {rid}{customer_fragment} is '{order_type}', expected 'Dine-In'"
                 )
