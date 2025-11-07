@@ -62,6 +62,13 @@ def extract_facts(transcript):
     response = promptlayer_client.run(prompt_name="IVR_fact_extraction", input_variables=input_variables)
     return json.loads(response["raw_response"].choices[0].message.content)
 
+def none_if_empty(value):
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
 def update_customer_info(customer_id, extracted, current_data, test_mode):
     updates = {}
     for field in ["name", "company_name", "address", "email"]:
@@ -143,9 +150,18 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                 customer_id = customer["customer_id"]
             else:
                 customer_table = get_table("customers", test_mode)
-                insert_res = supabase.table(customer_table).insert({"phone_number": extracted_phone}).execute()
-                customer_id = insert_res.data[0]["customer_id"]
-                customer = {"phone_number": extracted_phone}
+                try:
+                    insert_res = supabase.table(customer_table).insert({"phone_number": extracted_phone}).execute()
+                    customer_id = insert_res.data[0]["customer_id"]
+                except Exception:
+                    # Likely a duplicate; fetch the existing customer_id
+                    existing = supabase.table(customer_table).select("customer_id").eq("phone_number", extracted_phone).limit(1).execute()
+                    if existing.data:
+                        customer_id = existing.data[0]["customer_id"]
+                    else:
+                        raise
+                customer = {"phone_number": extracted_phone, "customer_id": customer_id}
+                customer_map[extracted_phone] = customer
 
             update_customer_info(customer_id, extracted, customer, test_mode)
 
@@ -153,9 +169,9 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                 "customer_id": customer_id,
                 "content": transcript,
                 "date_recording": date,
-                "sentiment": extracted.get("sentiment", ""),
+                "sentiment": none_if_empty(extracted.get("sentiment")),
                 "recording": file_name,
-                "category": extracted.get("category", "")
+                "category": none_if_empty(extracted.get("category"))
             })
 
             memory_content = []
