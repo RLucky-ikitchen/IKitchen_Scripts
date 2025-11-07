@@ -8,6 +8,7 @@ from supabase import create_client, Client
 from src.data_import.db import get_table, get_existing_customers
 from src.utils import standardize_phone_number
 import traceback
+from mutagen.mp3 import MP3
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -35,6 +36,13 @@ def extract_date_and_phone(filename):
         except ValueError:
             pass
     return date, phone
+
+def get_audio_duration_seconds(file_path):
+    try:
+        audio = MP3(file_path)
+        return float(getattr(getattr(audio, "info", None), "length", None))
+    except Exception:
+        return None
 
 def transcribe_audio(file_path):
     with open(file_path, 'rb') as f:
@@ -116,9 +124,17 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                 temp_file.write(uploaded_file.read())
                 temp_path = temp_file.name
 
+            duration_seconds = get_audio_duration_seconds(temp_path)
+            if duration_seconds is not None and duration_seconds < 10:
+                logger(f"⏩ Skipping short audio ({duration_seconds:.1f}s): {file_name}")
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+                continue
+
             transcript = transcribe_audio(temp_path)
             extracted = extract_facts(transcript)
-            sentiment = extracted.get("sentiment", "")
 
             extracted_phone = phone  # always use filename phone
             customer = customer_map.get(extracted_phone)
@@ -137,8 +153,9 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                 "customer_id": customer_id,
                 "content": transcript,
                 "date_recording": date,
-                "sentiment": sentiment,
-                "recording": file_name
+                "sentiment": extracted.get("sentiment", ""),
+                "recording": file_name,
+                "category": extracted.get("category", "")
             })
 
             memory_content = []

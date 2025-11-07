@@ -176,7 +176,7 @@ with st.expander("Import Data"):
 st.header("IVR Audio Import")
 with st.expander("Import Data"):
     st.markdown("""
-    1. Access the [IVR audio recordings](https://drive.google.com/drive/folders/1XsSeJVCZts1ERFunr8TNt5GCF-A7iChi)
+    1. Access the [IVR audio recordings](http://202.51.191.181/)
     2. Download the audio files that you want to process
     3. Upload the downloaded files below
                 """)
