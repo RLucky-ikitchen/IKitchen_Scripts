@@ -133,7 +133,37 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
 
             duration_seconds = get_audio_duration_seconds(temp_path)
             if duration_seconds is not None and duration_seconds < 10:
-                logger(f"⏩ Skipping short audio ({duration_seconds:.1f}s): {file_name}")
+                logger(f"⏩ Skipping short audio ({duration_seconds:.1f}s) for {file_name}")
+
+                extracted_phone = phone  # always use filename phone
+                customer = customer_map.get(extracted_phone)
+
+                if customer:
+                    customer_id = customer["customer_id"]
+                else:
+                    customer_table = get_table("customers", test_mode)
+                    try:
+                        insert_res = supabase.table(customer_table).insert({"phone_number": extracted_phone}).execute()
+                        customer_id = insert_res.data[0]["customer_id"]
+                    except Exception:
+                        # Likely a duplicate; fetch the existing customer_id
+                        existing = supabase.table(customer_table).select("customer_id").eq("phone_number", extracted_phone).limit(1).execute()
+                        if existing.data:
+                            customer_id = existing.data[0]["customer_id"]
+                        else:
+                            raise
+                    customer = {"phone_number": extracted_phone, "customer_id": customer_id}
+                    customer_map[extracted_phone] = customer
+
+                transcripts_payload.append({
+                    "customer_id": customer_id,
+                    "content": "",
+                    "date_recording": date,
+                    "sentiment": None,
+                    "recording": file_name,
+                    "category": "Spam: Irrelevant"
+                })
+
                 try:
                     os.remove(temp_path)
                 except Exception:
