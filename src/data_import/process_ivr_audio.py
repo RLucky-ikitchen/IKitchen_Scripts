@@ -144,7 +144,7 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                     "date_recording": date,
                     "sentiment": None,
                     "recording": file_name,
-                    "category": "Spam: Irrelevant"
+                    "category": "Spam: irrelevant"
                 }).execute()
 
                 try:
