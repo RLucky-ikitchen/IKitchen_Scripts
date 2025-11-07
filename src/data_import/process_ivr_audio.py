@@ -78,23 +78,6 @@ def update_customer_info(customer_id, extracted, current_data, test_mode):
         customer_table = get_table("customers", test_mode)
         supabase.table(customer_table).update(updates).eq("customer_id", customer_id).execute()
 
-def insert_transcripts_batch(transcripts_payload, test_mode):
-    transcript_table = get_table("ivr_transcripts", test_mode)
-    if transcripts_payload:
-        try:
-            supabase.table(transcript_table).insert(transcripts_payload).execute()
-            print("✅ Batch insert of transcripts successful.")
-        except Exception as e:
-            print(f"❌ Batch insert failed: {e}")
-            raise
-
-def insert_memories_batch(memory_payloads, test_mode):
-    memory_table = get_table("memory", test_mode)
-    if memory_payloads:
-        try:
-            supabase.table(memory_table).insert(memory_payloads).execute()
-        except Exception as e:
-            print(f"❌ Error inserting memory batch: {e}")
 
 def process_audio_files(uploaded_files, test_mode=True, logger=print):
     all_phones = []
@@ -113,11 +96,11 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
         file_info.append((uploaded_file, file_name, date, phone))
 
     customer_map = get_existing_customers(all_phones, test_mode)
-    existing_transcripts = supabase.table("ivr_transcripts").select("recording").execute().data
+    transcript_table = get_table("ivr_transcripts", test_mode)
+    memory_table = get_table("memory", test_mode)
+    existing_transcripts = supabase.table(transcript_table).select("recording").execute().data
     processed_recordings = set(row["recording"] for row in existing_transcripts if row["recording"])
 
-    transcripts_payload = []
-    memory_payloads = []
 
     for uploaded_file, file_name, date, phone in file_info:
         if file_name in processed_recordings:
@@ -155,14 +138,14 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                     customer = {"phone_number": extracted_phone, "customer_id": customer_id}
                     customer_map[extracted_phone] = customer
 
-                transcripts_payload.append({
+                supabase.table(transcript_table).insert({
                     "customer_id": customer_id,
                     "content": "",
                     "date_recording": date,
                     "sentiment": None,
                     "recording": file_name,
                     "category": "Spam: Irrelevant"
-                })
+                }).execute()
 
                 try:
                     os.remove(temp_path)
@@ -195,14 +178,14 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
 
             update_customer_info(customer_id, extracted, customer, test_mode)
 
-            transcripts_payload.append({
+            supabase.table(transcript_table).insert({
                 "customer_id": customer_id,
                 "content": transcript,
                 "date_recording": date,
                 "sentiment": none_if_empty(extracted.get("sentiment")),
                 "recording": file_name,
                 "category": none_if_empty(extracted.get("category"))
-            })
+            }).execute()
 
             memory_content = []
             for key, value in extracted.items():
@@ -212,17 +195,14 @@ def process_audio_files(uploaded_files, test_mode=True, logger=print):
                     memory_content.append(f"{key}: {value}")
 
             if memory_content:
-                memory_payloads.append({
+                supabase.table(memory_table).insert({
                     "customer_id": customer_id,
                     "content": ", ".join(memory_content),
                     "source": "transcript"
-                })
+                }).execute()
 
             logger(f"✅ Processed {file_name}")
 
         except Exception as e:
             error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
             logger(f"❌ Error processing {file_name}: {error_msg}")
-
-    insert_transcripts_batch(transcripts_payload, test_mode)
-    insert_memories_batch(memory_payloads, test_mode)
